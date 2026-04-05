@@ -1,76 +1,45 @@
-const uuidCache = {};
-const uuidPending = {};
-const UUID_TTL = 10 * 60 * 1000;
+const PLAYBACK_API_KEY = 'AIzaSyDVQw45DwoYh632gvsP5vPDqEKvb-Ywnb8';
+const playbackCache = {};
+const playbackPending = {};
+const PLAYBACK_TTL = 3 * 60 * 60 * 1000;
 
-// Get a download UUID, deduplicating concurrent requests
-async function getDownloadUuid(fileId) {
-  if (uuidCache[fileId] && Date.now() - uuidCache[fileId].time < UUID_TTL) {
-    return uuidCache[fileId].uuid;
+// Get video playback URLs from Google Drive's streaming API
+async function getPlaybackUrl(fileId) {
+  if (playbackCache[fileId] && Date.now() - playbackCache[fileId].time < PLAYBACK_TTL) {
+    return playbackCache[fileId].url;
   }
 
-  if (uuidPending[fileId]) return uuidPending[fileId];
+  if (playbackPending[fileId]) return playbackPending[fileId];
 
-  uuidPending[fileId] = (async () => {
-    const pageUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
-    const page = await fetch(pageUrl, { redirect: 'follow' });
-    const html = await page.text();
-    const match = html.match(/name="uuid" value="([^"]+)"/);
+  playbackPending[fileId] = (async () => {
+    const apiUrl = `https://content-workspacevideo-pa.googleapis.com/v1/drive/media/${fileId}/playback?auditContext=forDisplay&key=${PLAYBACK_API_KEY}`;
 
-    if (match) {
-      uuidCache[fileId] = { uuid: match[1], time: Date.now() };
-      return match[1];
-    }
-    return null;
-  })().finally(() => { delete uuidPending[fileId]; });
+    const res = await fetch(apiUrl, {
+      headers: {
+        'x-javascript-user-agent': 'google-api-javascript-client/1.1.0',
+        'x-requested-with': 'XMLHttpRequest',
+        'Referer': 'https://drive.google.com/',
+      },
+    });
 
-  return uuidPending[fileId];
-}
-
-// Invalidate cached uuid
-function invalidateUuid(fileId) {
-  delete uuidCache[fileId];
-}
-
-// Build the download URL with uuid
-function buildDownloadUrl(fileId, uuid) {
-  return `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t&uuid=${uuid}`;
-}
-
-// Fetch from Google Drive with uuid, retry with delay
-async function fetchDrive(fileId, headers = {}) {
-  const uuid = await getDownloadUuid(fileId);
-  if (!uuid) {
-    console.log('[GDrive] Could not extract uuid');
-    return null;
-  }
-
-  const url = buildDownloadUrl(fileId, uuid);
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * attempt));
-
-    const res = await fetch(url, { headers, redirect: 'follow' });
-    const ct = res.headers.get('content-type') || '';
-
-    if ((res.ok || res.status === 206) && !ct.includes('text/html')) {
-      return res;
+    if (!res.ok) {
+      console.log(`[GDrive] Playback API returned ${res.status}`);
+      return null;
     }
 
-    console.log(`[GDrive] Retry ${attempt + 1}/3 | range=${headers['Range'] || 'none'}`);
-    res.body?.cancel();
-  }
+    const data = await res.json();
+    const parsed = JSON.parse(data.mediaStreamingData.serializedHouseBrandPlayerResponse);
+    const formats = parsed.streamingData?.formats || [];
 
-  // Last resort: get fresh uuid
-  invalidateUuid(fileId);
-  const freshUuid = await getDownloadUuid(fileId);
-  if (freshUuid) {
-    const res = await fetch(buildDownloadUrl(fileId, freshUuid), { headers, redirect: 'follow' });
-    const ct = res.headers.get('content-type') || '';
-    if ((res.ok || res.status === 206) && !ct.includes('text/html')) return res;
-    res.body?.cancel();
-  }
+    if (!formats.length) return null;
 
-  return null;
+    // Pick highest quality format
+    const best = formats[formats.length - 1];
+    playbackCache[fileId] = { url: best.url, time: Date.now() };
+    return best.url;
+  })().finally(() => { delete playbackPending[fileId]; });
+
+  return playbackPending[fileId];
 }
 
 // Proxy stream from Google Drive shared files
@@ -83,57 +52,36 @@ export async function streamGdrive(req, res, file) {
   }
 
   try {
-    const CHUNK = 10 * 1024 * 1024;
-    const total = file.file_size || 0;
+    const videoUrl = await getPlaybackUrl(driveFileId);
+    if (!videoUrl) {
+      return res.status(403).json({ error: 'Could not get Google Drive playback URL' });
+    }
+
     const headers = {};
-    const reqRange = req.headers.range || '';
-
-    let start = 0;
-    let end = CHUNK - 1;
-
-    if (reqRange) {
-      const parts = reqRange.replace('bytes=', '').split('-');
-      start = parseInt(parts[0], 10) || 0;
-      end = parts[1] ? parseInt(parts[1], 10) : start + CHUNK - 1;
+    if (req.headers.range) {
+      headers['Range'] = req.headers.range;
     }
 
-    if (total && end >= total) end = total - 1;
-    if (start > end) {
-      return res.writeHead(416, { 'Content-Range': `bytes */${total}` }), res.end();
+    const driveRes = await fetch(videoUrl, { headers, redirect: 'follow' });
+
+    if (!driveRes.ok && driveRes.status !== 206) {
+      driveRes.body?.cancel();
+      // URL might be expired, clear cache and retry
+      delete playbackCache[driveFileId];
+      const freshUrl = await getPlaybackUrl(driveFileId);
+      if (!freshUrl) {
+        return res.status(403).json({ error: 'Google Drive playback URL expired' });
+      }
+
+      const retry = await fetch(freshUrl, { headers, redirect: 'follow' });
+      if (!retry.ok && retry.status !== 206) {
+        retry.body?.cancel();
+        return res.status(502).json({ error: `Google Drive returned ${retry.status}` });
+      }
+      return pipeResponse(retry, res, file.mime_type);
     }
 
-    headers['Range'] = `bytes=${start}-${end}`;
-
-    const driveRes = await fetchDrive(driveFileId, headers);
-
-    if (!driveRes) {
-      return res.status(403).json({
-        error: 'Google Drive blocked the request. Check that the file is shared as "Anyone with the link".',
-      });
-    }
-
-    const ct = driveRes.headers.get('content-type') || '';
-    const status = driveRes.status;
-    const resHeaders = { 'Accept-Ranges': 'bytes' };
-
-    resHeaders['Content-Type'] = file.mime_type || ct;
-
-    const cl = driveRes.headers.get('content-length');
-    if (cl) resHeaders['Content-Length'] = cl;
-
-    const cr = driveRes.headers.get('content-range');
-    if (cr) resHeaders['Content-Range'] = cr;
-
-    res.writeHead(status, resHeaders);
-
-    const reader = driveRes.body.getReader();
-    function pump() {
-      reader.read().then(({ done, value }) => {
-        if (done) { res.end(); return; }
-        res.write(Buffer.from(value), () => pump());
-      }).catch(() => res.end());
-    }
-    pump();
+    return pipeResponse(driveRes, res, file.mime_type);
   } catch (err) {
     console.error('[GDrive] Error:', err.message);
     if (!res.headersSent) {
@@ -144,11 +92,46 @@ export async function streamGdrive(req, res, file) {
   }
 }
 
+// Pipe a Google Drive response to the client
+function pipeResponse(driveRes, res, mimeType) {
+  const status = driveRes.status;
+  const resHeaders = { 'Accept-Ranges': 'bytes' };
+
+  const ct = driveRes.headers.get('content-type') || '';
+  resHeaders['Content-Type'] = mimeType || ct;
+
+  const cl = driveRes.headers.get('content-length');
+  if (cl) resHeaders['Content-Length'] = cl;
+
+  const cr = driveRes.headers.get('content-range');
+  if (cr) resHeaders['Content-Range'] = cr;
+
+  res.writeHead(status, resHeaders);
+
+  const reader = driveRes.body.getReader();
+  function pump() {
+    reader.read().then(({ done, value }) => {
+      if (done) { res.end(); return; }
+      if (!res.writable) { reader.cancel(); return; }
+      res.write(Buffer.from(value), () => pump());
+    }).catch(() => res.end());
+  }
+  pump();
+}
+
 // Probe a Google Drive file to get its real size and filename
 export async function probeDriveFile(fileId) {
-  const res = await fetchDrive(fileId, { Range: 'bytes=0-0' });
+  const videoUrl = await getPlaybackUrl(fileId);
+  if (!videoUrl) {
+    return { ok: false, error: 'Could not get playback URL' };
+  }
 
-  if (!res) return { ok: false, error: 'File not accessible' };
+  const res = await fetch(videoUrl, { headers: { Range: 'bytes=0-0' }, redirect: 'follow' });
+
+  if (!res.ok && res.status !== 206) {
+    res.body?.cancel();
+    return { ok: false, error: `Drive returned ${res.status}` };
+  }
 
   let fileSize = null;
   const cr = res.headers.get('content-range');
