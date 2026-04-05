@@ -1,10 +1,7 @@
 services:
   stremio-private-cloud:
     build: .
-    ports:
-      - "11780:11780"
+    network_mode: host
     volumes:
       - ./data:/app/data
-    environment:
-      - HOST_IP=${HOST_IP:-}
     restart: unless-stopped
