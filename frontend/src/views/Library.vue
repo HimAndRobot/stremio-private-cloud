@@ -210,14 +210,9 @@ function onDragMove(e) {
         }
       }, 30)
       backDropTimer = setTimeout(() => {
-        clearBackDrop()
+        clearInterval(backDropInterval)
+        backDropInterval = null
         backDropProgress.value = 1
-        dragActive.value = false
-        document.removeEventListener('mousemove', onDragMove)
-        document.removeEventListener('mouseup', onDragEnd)
-        openMoveModal(dragging.value, dragType.value)
-        dragging.value = null
-        dropTarget.value = null
       }, 3000)
     }
   }
@@ -226,9 +221,18 @@ function onDragMove(e) {
 async function onDragEnd() {
   document.removeEventListener('mousemove', onDragMove)
   document.removeEventListener('mouseup', onDragEnd)
+  const wasReady = backDropProgress.value >= 1
   clearBackDrop()
 
   if (dropTarget.value && dragging.value) {
+    if (dropTarget.value === '_back' && wasReady) {
+      openMoveModal(dragging.value, dragType.value)
+      dragActive.value = false
+      dragging.value = null
+      dropTarget.value = null
+      return
+    }
+
     let targetId = null
     if (dropTarget.value === '_back') {
       targetId = breadcrumb.value.length > 1
@@ -317,10 +321,7 @@ watch(() => route.query.folder, () => {
 
     <!-- Header -->
     <div class="library-header">
-      <div class="header-left">
-        <button v-if="currentFolderId" class="back-btn" @click="navigateFolder(breadcrumb.length > 1 ? breadcrumb[breadcrumb.length - 2].id : null)">&#8592;</button>
-        <h1>{{ breadcrumb.length ? breadcrumb[breadcrumb.length - 1].name : 'My Library' }}</h1>
-      </div>
+      <h1>{{ breadcrumb.length ? breadcrumb[breadcrumb.length - 1].name : 'My Library' }}</h1>
       <div class="header-actions">
         <div class="filter-wrapper">
           <button class="btn-filter" :class="{ active: hasActiveFilter }" @click="showFilter = !showFilter">
@@ -362,23 +363,26 @@ watch(() => route.query.folder, () => {
     </div>
 
     <div v-else class="poster-grid">
-      <!-- Back drop target (only when dragging inside a folder) -->
+      <!-- Back card (always visible inside a folder) -->
       <div
-        v-if="dragActive && currentFolderId"
+        v-if="currentFolderId"
         class="poster-card back-drop-card"
-        :class="{ 'drop-hover': dropTarget === '_back', 'loading': backDropProgress > 0 && backDropProgress < 1, 'ready': backDropProgress >= 1 }"
+        :class="{ 'drop-hover': dropTarget === '_back', 'ready': backDropProgress >= 1 }"
         data-back-drop
+        @click="!dragActive && navigateFolder(breadcrumb.length > 1 ? breadcrumb[breadcrumb.length - 2].id : null)"
       >
         <div class="poster-image back-drop-image">
           <div class="back-drop-content">
-            <div v-if="backDropProgress >= 1" class="back-drop-icon">&#8596;</div>
-            <div v-else class="back-drop-icon">&#8592;</div>
-            <svg v-if="dropTarget === '_back' && backDropProgress > 0 && backDropProgress < 1" class="back-drop-ring" viewBox="0 0 36 36">
-              <circle cx="18" cy="18" r="16" fill="none" stroke="var(--border)" stroke-width="2" />
-              <circle cx="18" cy="18" r="16" fill="none" stroke="var(--accent)" stroke-width="2"
-                :stroke-dasharray="`${backDropProgress * 100.5} 100.5`"
-                stroke-linecap="round" transform="rotate(-90 18 18)" />
-            </svg>
+            <div class="back-drop-icon-wrap">
+              <svg v-if="dropTarget === '_back' && backDropProgress > 0 && backDropProgress < 1" class="back-drop-ring" viewBox="0 0 48 48">
+                <circle cx="24" cy="24" r="21" fill="none" stroke="var(--border)" stroke-width="2" />
+                <circle cx="24" cy="24" r="21" fill="none" stroke="var(--accent)" stroke-width="2"
+                  :stroke-dasharray="`${backDropProgress * 131.9} 131.9`"
+                  stroke-linecap="round" transform="rotate(-90 24 24)" />
+              </svg>
+              <div v-if="backDropProgress >= 1" class="back-drop-icon">&#8596;</div>
+              <div v-else class="back-drop-icon">&#8592;</div>
+            </div>
             <div class="back-drop-label">{{ backDropProgress >= 1 ? 'Move to...' : 'Back' }}</div>
           </div>
         </div>
@@ -869,15 +873,20 @@ watch(() => route.query.folder, () => {
   display: flex; align-items: center; justify-content: center;
 }
 .back-drop-content {
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.back-drop-icon-wrap {
   position: relative;
+  width: 48px; height: 48px;
+  display: flex; align-items: center; justify-content: center;
 }
 .back-drop-icon {
-  font-size: 32px; color: var(--text-muted);
+  font-size: 28px; color: var(--text-muted);
   transition: all 0.3s;
+  z-index: 1;
 }
 .back-drop-card.drop-hover .back-drop-icon { color: var(--accent); }
-.back-drop-card.ready .back-drop-icon { color: var(--accent); font-size: 36px; }
+.back-drop-card.ready .back-drop-icon { color: var(--accent); font-size: 32px; }
 .back-drop-label {
   font-size: 13px; color: var(--text-muted); font-weight: 500;
   transition: color 0.2s;
@@ -887,10 +896,13 @@ watch(() => route.query.folder, () => {
   border: 2px dashed var(--accent);
   border-radius: var(--radius);
 }
+.back-drop-card:not(.drop-hover):not(.ready) { cursor: pointer; }
+.back-drop-card:not(.drop-hover):not(.ready):hover .back-drop-icon { color: var(--accent); }
+.back-drop-card:not(.drop-hover):not(.ready):hover .back-drop-label { color: var(--text-primary); }
 .back-drop-ring {
   position: absolute;
-  width: 52px; height: 52px;
-  top: -10px; left: 50%; transform: translateX(-50%);
+  width: 48px; height: 48px;
+  top: 0; left: 0;
 }
 
 /* Drag ghost */
