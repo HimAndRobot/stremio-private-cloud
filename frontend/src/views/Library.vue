@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { getLibrary, deleteContent, getFolders, getFolderPath, createFolder, deleteFolder, moveContentToFolder, moveFolderToFolder } from '../api/client.js'
+import MoveModal from '../components/MoveModal.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -9,12 +10,44 @@ const route = useRoute()
 const items = ref([])
 const folders = ref([])
 const breadcrumb = ref([])
-const filter = ref('all')
 const loading = ref(true)
 const addonUrl = ref('')
 const copied = ref(false)
 const showNewFolder = ref(false)
 const newFolderName = ref('')
+const showFilter = ref(false)
+const showMoveModal = ref(false)
+const moveItem = ref(null)
+const moveItemType = ref('')
+let backDropTimer = null
+const backDropProgress = ref(0)
+let backDropInterval = null
+
+// Per-folder filter state
+const filterState = ref({})
+const filter = computed({
+  get: () => filterState.value[currentFolderId.value || '_root']?.type || 'all',
+  set: (v) => {
+    const key = currentFolderId.value || '_root'
+    if (!filterState.value[key]) filterState.value[key] = {}
+    filterState.value[key] = { ...filterState.value[key], type: v }
+  }
+})
+const searchQuery = computed({
+  get: () => filterState.value[currentFolderId.value || '_root']?.search || '',
+  set: (v) => {
+    const key = currentFolderId.value || '_root'
+    if (!filterState.value[key]) filterState.value[key] = {}
+    filterState.value[key] = { ...filterState.value[key], search: v }
+  }
+})
+
+function clearFilters() {
+  const key = currentFolderId.value || '_root'
+  delete filterState.value[key]
+}
+
+const hasActiveFilter = computed(() => filter.value !== 'all' || searchQuery.value)
 
 // Drag state
 const dragging = ref(null)
@@ -31,9 +64,20 @@ const installUrl = computed(() => {
   return `https://web.stremio.com/#/addons?addon=${encodeURIComponent(addonUrl.value)}`
 })
 
+const filteredFolders = computed(() => {
+  if (!searchQuery.value.trim()) return folders.value
+  const q = searchQuery.value.toLowerCase()
+  return folders.value.filter(f => f.name.toLowerCase().includes(q))
+})
+
 const filtered = computed(() => {
-  if (filter.value === 'all') return items.value
-  return items.value.filter(i => i.type === filter.value)
+  let result = items.value
+  if (filter.value !== 'all') result = result.filter(i => i.type === filter.value)
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.toLowerCase()
+    result = result.filter(i => i.name.toLowerCase().includes(q))
+  }
+  return result
 })
 
 function copyUrl() {
@@ -83,6 +127,31 @@ function navigateFolder(folderId) {
   router.push({ path: '/', query: folderId ? { folder: folderId } : {} })
 }
 
+function openMoveModal(item, type) {
+  moveItem.value = item
+  moveItemType.value = type
+  showMoveModal.value = true
+}
+
+async function onMove(targetFolderId) {
+  if (moveItemType.value === 'content') {
+    await moveContentToFolder(moveItem.value.imdb_id, targetFolderId)
+  } else {
+    await moveFolderToFolder(moveItem.value.id, targetFolderId)
+  }
+  showMoveModal.value = false
+  moveItem.value = null
+  await load()
+}
+
+function clearBackDrop() {
+  clearTimeout(backDropTimer)
+  clearInterval(backDropInterval)
+  backDropTimer = null
+  backDropInterval = null
+  backDropProgress.value = 0
+}
+
 async function addFolder() {
   if (!newFolderName.value.trim()) return
   const folder = await createFolder(newFolderName.value.trim(), currentFolderId.value)
@@ -110,27 +179,67 @@ function onDragMove(e) {
   const els = document.elementsFromPoint(e.clientX, e.clientY)
   const folderEl = els.find(el => el.closest?.('[data-folder-id]'))?.closest('[data-folder-id]')
   const breadEl = els.find(el => el.closest?.('[data-breadcrumb-id]'))?.closest('[data-breadcrumb-id]')
+  const backEl = els.find(el => el.closest?.('[data-back-drop]'))?.closest('[data-back-drop]')
 
-  if (folderEl) {
+  let newTarget = null
+
+  if (backEl) {
+    newTarget = '_back'
+  } else if (folderEl) {
     const fid = folderEl.getAttribute('data-folder-id')
-    if (dragType.value === 'folder' && dragging.value.id === fid) {
-      dropTarget.value = null
-    } else {
-      dropTarget.value = fid
+    if (!(dragType.value === 'folder' && dragging.value.id === fid)) {
+      newTarget = fid
     }
   } else if (breadEl) {
-    dropTarget.value = breadEl.getAttribute('data-breadcrumb-id')
-  } else {
-    dropTarget.value = null
+    newTarget = breadEl.getAttribute('data-breadcrumb-id')
+  }
+
+  if (newTarget !== dropTarget.value) {
+    clearBackDrop()
+    dropTarget.value = newTarget
+
+    if (newTarget === '_back') {
+      backDropProgress.value = 0
+      const startTime = Date.now()
+      backDropInterval = setInterval(() => {
+        const elapsed = Date.now() - startTime
+        if (elapsed < 1000) {
+          backDropProgress.value = 0
+        } else {
+          backDropProgress.value = Math.min((elapsed - 1000) / 2000, 1)
+        }
+      }, 30)
+      backDropTimer = setTimeout(() => {
+        clearBackDrop()
+        backDropProgress.value = 1
+        dragActive.value = false
+        document.removeEventListener('mousemove', onDragMove)
+        document.removeEventListener('mouseup', onDragEnd)
+        openMoveModal(dragging.value, dragType.value)
+        dragging.value = null
+        dropTarget.value = null
+      }, 3000)
+    }
   }
 }
 
 async function onDragEnd() {
   document.removeEventListener('mousemove', onDragMove)
   document.removeEventListener('mouseup', onDragEnd)
+  clearBackDrop()
 
   if (dropTarget.value && dragging.value) {
-    const targetId = dropTarget.value === 'root' ? null : dropTarget.value
+    let targetId = null
+    if (dropTarget.value === '_back') {
+      targetId = breadcrumb.value.length > 1
+        ? breadcrumb.value[breadcrumb.value.length - 2].id
+        : null
+    } else if (dropTarget.value === 'root') {
+      targetId = null
+    } else {
+      targetId = dropTarget.value
+    }
+
     if (dragType.value === 'content') {
       await moveContentToFolder(dragging.value.imdb_id, targetId)
     } else {
@@ -149,11 +258,23 @@ function isDragging(item, type) {
   return dragActive.value && dragging.value === item && dragType.value === type
 }
 
-onMounted(load)
+function closeFilter(e) {
+  if (showFilter.value && !e.target.closest('.filter-wrapper')) {
+    showFilter.value = false
+  }
+}
+
+onMounted(() => {
+  load()
+  document.addEventListener('click', closeFilter)
+})
 
 // Reload on route query change (folder navigation)
 import { watch } from 'vue'
-watch(() => route.query.folder, () => load())
+watch(() => route.query.folder, () => {
+  showFilter.value = false
+  load()
+})
 </script>
 
 <template>
@@ -201,10 +322,26 @@ watch(() => route.query.folder, () => load())
         <h1>{{ breadcrumb.length ? breadcrumb[breadcrumb.length - 1].name : 'My Library' }}</h1>
       </div>
       <div class="header-actions">
-        <div class="filter-tabs">
-          <button :class="{ active: filter === 'all' }" @click="filter = 'all'">All</button>
-          <button :class="{ active: filter === 'movie' }" @click="filter = 'movie'">Movies</button>
-          <button :class="{ active: filter === 'series' }" @click="filter = 'series'">Series</button>
+        <div class="filter-wrapper">
+          <button class="btn-filter" :class="{ active: hasActiveFilter }" @click="showFilter = !showFilter">
+            &#9776; Filter
+            <span v-if="hasActiveFilter" class="filter-dot"></span>
+          </button>
+          <div v-if="showFilter" class="filter-dropdown" @click.stop>
+            <div class="filter-section">
+              <label class="filter-label">Type</label>
+              <div class="filter-options">
+                <button :class="{ active: filter === 'all' }" @click="filter = 'all'">All</button>
+                <button :class="{ active: filter === 'movie' }" @click="filter = 'movie'">Movies</button>
+                <button :class="{ active: filter === 'series' }" @click="filter = 'series'">Series</button>
+              </div>
+            </div>
+            <div class="filter-section">
+              <label class="filter-label">Search</label>
+              <input v-model="searchQuery" placeholder="Filter by name..." class="filter-input" />
+            </div>
+            <button v-if="hasActiveFilter" class="filter-clear" @click="clearFilters()">Clear filters</button>
+          </div>
         </div>
         <button class="btn-ghost" @click="showNewFolder = true">+ Folder</button>
         <button class="btn-primary" @click="router.push({ path: '/add', query: currentFolderId ? { folder: currentFolderId } : {} })">+ Add Content</button>
@@ -215,7 +352,7 @@ watch(() => route.query.folder, () => load())
 
     <div v-if="loading" class="empty-state">Loading...</div>
 
-    <div v-else-if="folders.length === 0 && filtered.length === 0" class="empty-state">
+    <div v-else-if="filteredFolders.length === 0 && filtered.length === 0" class="empty-state">
       <div class="empty-icon">&#127909;</div>
       <h2>{{ breadcrumb.length ? 'Empty folder' : 'No content yet' }}</h2>
       <p>{{ breadcrumb.length ? 'Add content or create subfolders.' : 'Add movies and series to start building your private library.' }}</p>
@@ -225,9 +362,31 @@ watch(() => route.query.folder, () => load())
     </div>
 
     <div v-else class="poster-grid">
+      <!-- Back drop target (only when dragging inside a folder) -->
+      <div
+        v-if="dragActive && currentFolderId"
+        class="poster-card back-drop-card"
+        :class="{ 'drop-hover': dropTarget === '_back', 'loading': backDropProgress > 0 && backDropProgress < 1, 'ready': backDropProgress >= 1 }"
+        data-back-drop
+      >
+        <div class="poster-image back-drop-image">
+          <div class="back-drop-content">
+            <div v-if="backDropProgress >= 1" class="back-drop-icon">&#8596;</div>
+            <div v-else class="back-drop-icon">&#8592;</div>
+            <svg v-if="dropTarget === '_back' && backDropProgress > 0 && backDropProgress < 1" class="back-drop-ring" viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="16" fill="none" stroke="var(--border)" stroke-width="2" />
+              <circle cx="18" cy="18" r="16" fill="none" stroke="var(--accent)" stroke-width="2"
+                :stroke-dasharray="`${backDropProgress * 100.5} 100.5`"
+                stroke-linecap="round" transform="rotate(-90 18 18)" />
+            </svg>
+            <div class="back-drop-label">{{ backDropProgress >= 1 ? 'Move to...' : 'Back' }}</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Folders -->
       <div
-        v-for="folder in folders"
+        v-for="folder in filteredFolders"
         :key="'f_' + folder.id"
         class="poster-card folder-card"
         :data-folder-id="folder.id"
@@ -250,7 +409,8 @@ watch(() => route.query.folder, () => load())
             <div class="overlay-top">
               <span class="type-badge folder-badge">Folder</span>
               <div class="overlay-right">
-                <div class="move-handle" @mousedown.stop="startDrag($event, folder, 'folder')" @click.stop title="Move">&#9776;</div>
+                <div class="move-handle" @mousedown.stop="startDrag($event, folder, 'folder')" @click.stop title="Drag">&#9776;</div>
+                <button class="move-btn" @click.stop="openMoveModal(folder, 'folder')" title="Move to...">&#8596;</button>
                 <button class="delete-btn" @click.stop="removeFolder(folder.id)" title="Delete folder">&#10005;</button>
               </div>
             </div>
@@ -285,7 +445,8 @@ watch(() => route.query.folder, () => load())
             <div class="overlay-top">
               <span class="type-badge">{{ item.type }}</span>
               <div class="overlay-right">
-                <div class="move-handle" @mousedown.stop="startDrag($event, item, 'content')" @click.stop title="Move">&#9776;</div>
+                <div class="move-handle" @mousedown.stop="startDrag($event, item, 'content')" @click.stop title="Drag">&#9776;</div>
+                <button class="move-btn" @click.stop="openMoveModal(item, 'content')" title="Move to...">&#8596;</button>
                 <button class="delete-btn" @click.stop="remove(item.imdb_id)" title="Remove">&#10005;</button>
               </div>
             </div>
@@ -327,6 +488,15 @@ watch(() => route.query.folder, () => load())
         </div>
       </div>
     </div>
+
+    <!-- Move modal -->
+    <MoveModal
+      v-if="showMoveModal && moveItem"
+      :item-name="moveItemType === 'content' ? moveItem.name : moveItem.name"
+      :current-folder-id="currentFolderId"
+      @close="showMoveModal = false"
+      @move="onMove"
+    />
 
     <!-- Drag ghost -->
     <div
@@ -437,22 +607,84 @@ watch(() => route.query.folder, () => load())
 }
 .back-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 .header-actions { display: flex; align-items: center; gap: 10px; }
-.filter-tabs {
-  display: flex;
+.filter-wrapper { position: relative; }
+.btn-filter {
+  padding: 8px 14px;
   background: var(--bg-secondary);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-.filter-tabs button {
-  padding: 8px 16px;
-  background: transparent;
   color: var(--text-secondary);
-  border-radius: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
 }
-.filter-tabs button:hover { color: var(--text-primary); }
-.filter-tabs button.active { background: var(--accent); color: white; }
+.btn-filter:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-filter.active { border-color: var(--accent); color: var(--accent); }
+.filter-dot {
+  width: 6px; height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  position: absolute;
+  top: 6px; right: 6px;
+}
+
+.filter-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 240px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  z-index: 50;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.filter-section { display: flex; flex-direction: column; gap: 6px; }
+.filter-label {
+  font-size: 11px; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.filter-options { display: flex; gap: 4px; }
+.filter-options button {
+  flex: 1;
+  padding: 6px 0;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.filter-options button:hover { color: var(--text-primary); }
+.filter-options button.active { background: var(--accent); color: white; border-color: var(--accent); }
+.filter-input {
+  padding: 7px 10px;
+  font-size: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  outline: none;
+}
+.filter-input:focus { border-color: var(--accent); }
+.filter-input::placeholder { color: var(--text-muted); }
+.filter-clear {
+  padding: 6px;
+  background: none;
+  color: var(--danger);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+  border-radius: 4px;
+}
+.filter-clear:hover { background: rgba(239, 68, 68, 0.1); }
 
 /* Modal */
 .modal-overlay {
@@ -598,11 +830,11 @@ watch(() => route.query.folder, () => load())
 .folder-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4px;
+  gap: 8px;
   width: 100%; height: 100%;
 }
 .folder-thumb {
-  border-radius: 4px;
+  border-radius: 6px;
   overflow: hidden;
   background: var(--bg-card);
 }
@@ -619,6 +851,46 @@ watch(() => route.query.folder, () => load())
   display: flex; align-items: center; justify-content: center;
   background: linear-gradient(135deg, #1e1f2e, #16171f);
   font-size: 24px;
+}
+
+/* Move button */
+.move-btn {
+  width: 28px; height: 28px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(124, 92, 252, 0.6); color: white;
+  border-radius: 50%; font-size: 14px; cursor: pointer;
+}
+.move-btn:hover { background: var(--accent); }
+
+/* Back drop card */
+.back-drop-card { pointer-events: auto; }
+.back-drop-image {
+  background: linear-gradient(135deg, #1a1b28, #12131a);
+  display: flex; align-items: center; justify-content: center;
+}
+.back-drop-content {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  position: relative;
+}
+.back-drop-icon {
+  font-size: 32px; color: var(--text-muted);
+  transition: all 0.3s;
+}
+.back-drop-card.drop-hover .back-drop-icon { color: var(--accent); }
+.back-drop-card.ready .back-drop-icon { color: var(--accent); font-size: 36px; }
+.back-drop-label {
+  font-size: 13px; color: var(--text-muted); font-weight: 500;
+  transition: color 0.2s;
+}
+.back-drop-card.drop-hover .back-drop-label { color: var(--text-primary); }
+.back-drop-card.drop-hover .back-drop-image {
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+}
+.back-drop-ring {
+  position: absolute;
+  width: 52px; height: 52px;
+  top: -10px; left: 50%; transform: translateX(-50%);
 }
 
 /* Drag ghost */

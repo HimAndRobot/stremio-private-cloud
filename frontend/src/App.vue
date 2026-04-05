@@ -15,10 +15,6 @@ const router = useRouter()
           <span class="nav-icon">&#9776;</span>
           Library
         </router-link>
-        <router-link to="/add" class="nav-item">
-          <span class="nav-icon">&#43;</span>
-          Add Content
-        </router-link>
         <router-link to="/settings" class="nav-item">
           <span class="nav-icon">&#9881;</span>
           Settings
