@@ -29,11 +29,25 @@ export function migrate() {
 
     CREATE INDEX IF NOT EXISTS idx_files_imdb ON files(imdb_id);
 
+    CREATE TABLE IF NOT EXISTS folders (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      parent_id   TEXT,
+      created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
   `);
+
+  // Add folder_id column to content if not present
+  const contentCols = db.prepare("PRAGMA table_info(content)").all();
+  if (!contentCols.find(c => c.name === 'folder_id')) {
+    db.exec("ALTER TABLE content ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL");
+  }
 
   // Migrate existing files table if CHECK constraint is outdated
   const hasOldConstraint = db.prepare(

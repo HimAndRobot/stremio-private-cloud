@@ -1,10 +1,17 @@
 import { getDb } from '../connection.js';
 
-// List all content items with optional type filter and search
-export function listContent({ type, search, skip = 0, limit = 100 } = {}) {
+// List content items in a folder (null = root), with optional type filter and search
+export function listContent({ type, search, skip = 0, limit = 100, folder_id = undefined } = {}) {
   const db = getDb();
   let sql = 'SELECT * FROM content WHERE 1=1';
   const values = [];
+
+  if (folder_id === null) {
+    sql += ' AND folder_id IS NULL';
+  } else if (folder_id) {
+    sql += ' AND folder_id = ?';
+    values.push(folder_id);
+  }
 
   if (type) {
     sql += ' AND type = ?';
@@ -28,11 +35,17 @@ export function getContent(imdbId) {
 }
 
 // Create a new content item
-export function createContent({ imdb_id, type, name, year, poster }) {
+export function createContent({ imdb_id, type, name, year, poster, folder_id }) {
   const db = getDb();
   return db.prepare(
-    'INSERT OR IGNORE INTO content (imdb_id, type, name, year, poster) VALUES (?, ?, ?, ?, ?)'
-  ).run(imdb_id, type, name, year, poster);
+    'INSERT OR IGNORE INTO content (imdb_id, type, name, year, poster, folder_id) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(imdb_id, type, name, year, poster, folder_id || null);
+}
+
+// Move content to a folder
+export function moveContent(imdbId, folderId) {
+  const db = getDb();
+  db.prepare('UPDATE content SET folder_id = ? WHERE imdb_id = ?').run(folderId || null, imdbId);
 }
 
 // Delete a content item and all associated files

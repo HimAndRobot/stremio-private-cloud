@@ -16,19 +16,58 @@ export function searchCinemeta(query) {
   return request(`/content/search?q=${encodeURIComponent(query)}`);
 }
 
-export function getLibrary(type) {
-  const params = type ? `?type=${type}` : '';
-  return request(`/content${params}`);
+export function getLibrary(type, folderId) {
+  const params = new URLSearchParams();
+  if (type) params.set('type', type);
+  if (folderId) params.set('folder_id', folderId);
+  else params.set('folder_id', 'root');
+  const qs = params.toString();
+  return request(`/content${qs ? '?' + qs : ''}`);
 }
 
 export function getContent(imdbId) {
   return request(`/content/${imdbId}`);
 }
 
-export function addContent(imdbId, type) {
+export function addContent(imdbId, type, folderId) {
   return request('/content', {
     method: 'POST',
-    body: JSON.stringify({ imdb_id: imdbId, type }),
+    body: JSON.stringify({ imdb_id: imdbId, type, folder_id: folderId || undefined }),
+  });
+}
+
+// Folders
+export function getFolders(parentId) {
+  const qs = parentId ? `?parent_id=${parentId}` : '';
+  return request(`/folders${qs}`);
+}
+
+export function getFolderPath(folderId) {
+  return request(`/folders/path/${folderId}`);
+}
+
+export function createFolder(name, parentId) {
+  return request('/folders', {
+    method: 'POST',
+    body: JSON.stringify({ name, parent_id: parentId || undefined }),
+  });
+}
+
+export function deleteFolder(folderId) {
+  return request(`/folders/${folderId}`, { method: 'DELETE' });
+}
+
+export function moveContentToFolder(imdbId, folderId) {
+  return request('/folders/move-content', {
+    method: 'POST',
+    body: JSON.stringify({ imdb_id: imdbId, folder_id: folderId || null }),
+  });
+}
+
+export function moveFolderToFolder(folderId, parentId) {
+  return request(`/folders/${folderId}/move`, {
+    method: 'POST',
+    body: JSON.stringify({ parent_id: parentId || null }),
   });
 }
 

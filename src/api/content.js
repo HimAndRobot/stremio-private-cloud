@@ -20,8 +20,9 @@ router.get('/search', async (req, res) => {
 
 // List library content
 router.get('/', (req, res) => {
-  const { type, search, skip } = req.query;
-  const items = contentDb.listContent({ type, search, skip: parseInt(skip || '0', 10) });
+  const { type, search, skip, folder_id } = req.query;
+  const fid = folder_id === 'root' ? null : folder_id;
+  const items = contentDb.listContent({ type, search, skip: parseInt(skip || '0', 10), folder_id: fid });
   res.json(items);
 });
 
@@ -44,7 +45,7 @@ router.get('/:imdbId', async (req, res) => {
 
 // Add content to library (from Cinemeta search result)
 router.post('/', async (req, res) => {
-  const { imdb_id, type } = req.body;
+  const { imdb_id, type, folder_id } = req.body;
   if (!imdb_id) return res.status(400).json({ error: 'imdb_id is required' });
 
   const existing = contentDb.getContent(imdb_id);
@@ -57,6 +58,7 @@ router.post('/', async (req, res) => {
     name: meta.name,
     year: meta.year,
     poster: meta.poster,
+    folder_id: folder_id || null,
   });
 
   res.status(201).json(contentDb.getContent(imdb_id));

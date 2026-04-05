@@ -35,6 +35,25 @@ async function resolveDownloadUrl(fileId) {
   return { url: urls[0], ok: false };
 }
 
+// Try to fetch from Google Drive, attempting all URL variants
+async function fetchDrive(driveFileId, headers) {
+  const urls = getDriveUrls(driveFileId);
+
+  for (const url of urls) {
+    const driveRes = await fetch(url, { headers, redirect: 'follow' });
+    const ct = driveRes.headers.get('content-type') || '';
+
+    if ((driveRes.ok || driveRes.status === 206) && !ct.includes('text/html')) {
+      return driveRes;
+    }
+
+    console.log(`[GDrive] ${url} returned ${driveRes.status} (${ct.split(';')[0]})`);
+    driveRes.body?.cancel();
+  }
+
+  return null;
+}
+
 // Proxy stream from Google Drive shared files
 export async function streamGdrive(req, res, file) {
   const meta = JSON.parse(file.source_meta || '{}');
@@ -45,35 +64,20 @@ export async function streamGdrive(req, res, file) {
   }
 
   try {
-    const { url: downloadUrl } = await resolveDownloadUrl(driveFileId);
-
     const headers = {};
     if (req.headers.range) {
       headers['Range'] = req.headers.range;
     }
 
-    const driveRes = await fetch(downloadUrl, { headers, redirect: 'follow' });
+    const driveRes = await fetchDrive(driveFileId, headers);
 
-    if (!driveRes.ok && driveRes.status !== 206) {
-      const ct = driveRes.headers.get('content-type') || '';
-      if (ct.includes('text/html')) {
-        driveRes.body?.cancel();
-        return res.status(403).json({
-          error: 'Google Drive returned an HTML page instead of the file. Make sure the file is shared as "Anyone with the link".',
-        });
-      }
-      driveRes.body?.cancel();
-      return res.status(502).json({ error: `Google Drive returned ${driveRes.status}` });
-    }
-
-    const ct = driveRes.headers.get('content-type') || '';
-    if (ct.includes('text/html')) {
-      driveRes.body?.cancel();
+    if (!driveRes) {
       return res.status(403).json({
-        error: 'Google Drive requires confirmation for this file. Ensure the file sharing is set to "Anyone with the link".',
+        error: 'Google Drive blocked the request. The file may have too many downloads or the sharing settings changed.',
       });
     }
 
+    const ct = driveRes.headers.get('content-type') || '';
     const status = driveRes.status;
     const resHeaders = { 'Accept-Ranges': 'bytes' };
 

@@ -1,9 +1,11 @@
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { searchCinemeta, addContent } from '../api/client.js'
 
 const router = useRouter()
+const route = useRoute()
+const folderId = route.query.folder || null
 const query = ref('')
 const results = ref([])
 const searching = ref(false)
@@ -25,7 +27,7 @@ function onSearch() {
 async function add(item) {
   adding.value = item.imdb_id
   try {
-    await addContent(item.imdb_id, item.type)
+    await addContent(item.imdb_id, item.type, folderId)
     router.push(`/content/${item.imdb_id}`)
   } catch (e) {
     if (e.message.includes('Already')) {
