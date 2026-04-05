@@ -47,6 +47,13 @@ export function linkGdrive(imdbId, driveUrl, quality) {
   });
 }
 
+export function linkMega(imdbId, megaUrl, quality) {
+  return request('/files/mega', {
+    method: 'POST',
+    body: JSON.stringify({ imdb_id: imdbId, mega_url: megaUrl, quality }),
+  });
+}
+
 export async function uploadLocal(imdbId, file, quality) {
   const form = new FormData();
   form.append('video', file);

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { linkGdrive, uploadLocal } from '../api/client.js'
+import { linkGdrive, linkMega, uploadLocal } from '../api/client.js'
 
 const props = defineProps({ targetId: String })
 const emit = defineEmits(['close', 'linked'])
@@ -14,12 +14,16 @@ const error = ref('')
 // Google Drive
 const driveUrl = ref('')
 
+// MEGA
+const megaUrl = ref('')
+
 // Local file
 const selectedFile = ref(null)
 const fileInputRef = ref(null)
 
 const canSubmit = computed(() => {
   if (source.value === 'gdrive') return driveUrl.value.trim().length > 0
+  if (source.value === 'mega') return megaUrl.value.trim().length > 0
   if (source.value === 'local') return selectedFile.value !== null
   return false
 })
@@ -65,6 +69,8 @@ async function submit() {
     let result
     if (source.value === 'gdrive') {
       result = await linkGdrive(props.targetId, driveUrl.value, quality.value)
+    } else if (source.value === 'mega') {
+      result = await linkMega(props.targetId, megaUrl.value, quality.value)
     } else {
       result = await uploadLocal(props.targetId, selectedFile.value, quality.value)
     }
@@ -84,7 +90,7 @@ async function submit() {
         <div class="modal-title-row">
           <button v-if="step === 'form'" class="back-btn" @click="goBack">&larr;</button>
           <h3>
-            {{ step === 'choose' ? 'Add File' : source === 'gdrive' ? 'Google Drive' : 'Local File' }}
+            {{ step === 'choose' ? 'Add File' : source === 'gdrive' ? 'Google Drive' : source === 'mega' ? 'MEGA' : 'Local File' }}
           </h3>
         </div>
         <button class="modal-close" @click="emit('close')">&times;</button>
@@ -104,6 +110,11 @@ async function submit() {
             <div class="source-label">Google Drive</div>
             <div class="source-desc">Link a shared file from Google Drive</div>
           </button>
+          <button class="source-card" @click="selectSource('mega')">
+            <div class="source-icon">&#9889;</div>
+            <div class="source-label">MEGA</div>
+            <div class="source-desc">Link a shared file from MEGA.nz</div>
+          </button>
         </div>
       </div>
 
@@ -119,6 +130,20 @@ async function submit() {
             <input
               v-model="driveUrl"
               placeholder="https://drive.google.com/file/d/.../view"
+              autofocus
+              @keydown.enter="canSubmit && submit()"
+            />
+          </div>
+        </template>
+
+        <!-- MEGA form -->
+        <template v-if="source === 'mega'">
+          <p class="modal-hint">Paste a MEGA shared link. The file must be publicly shared.</p>
+          <div class="form-group">
+            <label>MEGA URL</label>
+            <input
+              v-model="megaUrl"
+              placeholder="https://mega.nz/file/...#..."
               autofocus
               @keydown.enter="canSubmit && submit()"
             />

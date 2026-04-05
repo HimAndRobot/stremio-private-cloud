@@ -22,7 +22,7 @@ export function migrate() {
       file_size   INTEGER,
       mime_type   TEXT,
       quality     TEXT,
-      source_type TEXT DEFAULT 'local' CHECK(source_type IN ('local', 'gdrive', 'url')),
+      source_type TEXT DEFAULT 'local' CHECK(source_type IN ('local', 'gdrive', 'mega', 'url')),
       source_meta TEXT,
       created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
     );

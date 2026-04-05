@@ -6,6 +6,7 @@ import * as fileDb from '../db/queries/files.js';
 import { fileId } from '../utils/id.js';
 import { getMimeType, isVideoFile } from '../utils/mime.js';
 import { parseDriveFileId, probeDriveFile } from '../streaming/gdrive.js';
+import { parseMegaUrl, probeMegaFile } from '../streaming/mega.js';
 import config from '../config.js';
 
 const upload = multer({
@@ -121,6 +122,49 @@ router.post('/gdrive', async (req, res) => {
     quality: quality || null,
     source_type: 'gdrive',
     source_meta: JSON.stringify({ driveFileId }),
+  });
+
+  res.status(201).json(fileDb.getFile(id));
+});
+
+// Link a MEGA shared file
+router.post('/mega', async (req, res) => {
+  const { imdb_id, mega_url, quality } = req.body;
+  if (!imdb_id || !mega_url) {
+    return res.status(400).json({ error: 'imdb_id and mega_url are required' });
+  }
+
+  const validUrl = parseMegaUrl(mega_url);
+  if (!validUrl) {
+    return res.status(400).json({ error: 'Invalid MEGA URL format' });
+  }
+
+  let fileSize = null;
+  let detectedName = null;
+  try {
+    const probe = await probeMegaFile(validUrl);
+    if (!probe.ok) {
+      return res.status(400).json({ error: 'MEGA file not accessible' });
+    }
+    fileSize = probe.fileSize;
+    detectedName = probe.fileName;
+  } catch (err) {
+    return res.status(400).json({ error: `Failed to access MEGA file: ${err.message}` });
+  }
+
+  if (!detectedName) detectedName = `mega_file.mp4`;
+
+  const id = fileId();
+  fileDb.createFile({
+    id,
+    imdb_id,
+    file_path: mega_url,
+    file_name: detectedName,
+    file_size: fileSize,
+    mime_type: getMimeType(detectedName),
+    quality: quality || null,
+    source_type: 'mega',
+    source_meta: JSON.stringify({ megaUrl: validUrl }),
   });
 
   res.status(201).json(fileDb.getFile(id));
