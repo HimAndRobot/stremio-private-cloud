@@ -7,9 +7,10 @@ export function getLanIp() {
 
   // Inside Docker Desktop (Windows/Mac): resolve host.docker.internal
   try {
-    const resolved = execSync('getent hosts host.docker.internal', { timeout: 2000 })
-      .toString().trim().split(/\s+/)[0];
-    if (resolved && !resolved.startsWith('127.')) return resolved;
+    const lines = execSync('getent ahostsv4 host.docker.internal', { timeout: 2000 })
+      .toString().trim().split('\n');
+    const ipv4 = lines[0]?.split(/\s+/)[0];
+    if (ipv4 && /^\d+\.\d+\.\d+\.\d+$/.test(ipv4) && !ipv4.startsWith('127.')) return ipv4;
   } catch { /* not in Docker or Linux host */ }
 
   // Direct detection (works on host or Linux Docker with host network)
