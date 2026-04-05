@@ -1,22 +1,29 @@
 const uuidCache = {};
+const uuidPending = {};
 const UUID_TTL = 10 * 60 * 1000;
 
-// Get a fresh download UUID for a file
+// Get a download UUID, deduplicating concurrent requests
 async function getDownloadUuid(fileId) {
   if (uuidCache[fileId] && Date.now() - uuidCache[fileId].time < UUID_TTL) {
     return uuidCache[fileId].uuid;
   }
 
-  const pageUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
-  const page = await fetch(pageUrl, { redirect: 'follow' });
-  const html = await page.text();
-  const match = html.match(/name="uuid" value="([^"]+)"/);
+  if (uuidPending[fileId]) return uuidPending[fileId];
 
-  if (match) {
-    uuidCache[fileId] = { uuid: match[1], time: Date.now() };
-    return match[1];
-  }
-  return null;
+  uuidPending[fileId] = (async () => {
+    const pageUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+    const page = await fetch(pageUrl, { redirect: 'follow' });
+    const html = await page.text();
+    const match = html.match(/name="uuid" value="([^"]+)"/);
+
+    if (match) {
+      uuidCache[fileId] = { uuid: match[1], time: Date.now() };
+      return match[1];
+    }
+    return null;
+  })().finally(() => { delete uuidPending[fileId]; });
+
+  return uuidPending[fileId];
 }
 
 // Invalidate cached uuid
@@ -46,7 +53,7 @@ async function fetchDrive(fileId, headers = {}) {
       return res;
     }
 
-    console.log(`[GDrive] Attempt ${attempt + 1} failed: ${res.status} (${ct.split(';')[0]})`);
+    console.log(`[GDrive] Retry ${attempt + 1}/2 | uuid=${uuid.slice(0,8)}... | range=${headers['Range'] || 'none'} | drive responded with HTML`);
     res.body?.cancel();
     invalidateUuid(fileId);
   }
