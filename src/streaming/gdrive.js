@@ -1,12 +1,27 @@
-let cachedUuids = {};
+const uuidCache = {};
+const UUID_TTL = 10 * 60 * 1000;
 
-// Get a fresh download UUID for a file (required by Google Drive virus scan bypass)
+// Get a fresh download UUID for a file
 async function getDownloadUuid(fileId) {
+  if (uuidCache[fileId] && Date.now() - uuidCache[fileId].time < UUID_TTL) {
+    return uuidCache[fileId].uuid;
+  }
+
   const pageUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
   const page = await fetch(pageUrl, { redirect: 'follow' });
   const html = await page.text();
   const match = html.match(/name="uuid" value="([^"]+)"/);
-  return match ? match[1] : null;
+
+  if (match) {
+    uuidCache[fileId] = { uuid: match[1], time: Date.now() };
+    return match[1];
+  }
+  return null;
+}
+
+// Invalidate cached uuid
+function invalidateUuid(fileId) {
+  delete uuidCache[fileId];
 }
 
 // Build the download URL with uuid
@@ -14,41 +29,28 @@ function buildDownloadUrl(fileId, uuid) {
   return `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t&uuid=${uuid}`;
 }
 
-// Fetch from Google Drive with uuid-based confirmation
+// Fetch from Google Drive with uuid, retry once on failure
 async function fetchDrive(fileId, headers = {}) {
-  // Try cached uuid first
-  if (cachedUuids[fileId]) {
-    const url = buildDownloadUrl(fileId, cachedUuids[fileId]);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const uuid = await getDownloadUuid(fileId);
+    if (!uuid) {
+      console.log('[GDrive] Could not extract uuid');
+      return null;
+    }
+
+    const url = buildDownloadUrl(fileId, uuid);
     const res = await fetch(url, { headers, redirect: 'follow' });
     const ct = res.headers.get('content-type') || '';
+
     if ((res.ok || res.status === 206) && !ct.includes('text/html')) {
       return res;
     }
+
+    console.log(`[GDrive] Attempt ${attempt + 1} failed: ${res.status} (${ct.split(';')[0]})`);
     res.body?.cancel();
-    delete cachedUuids[fileId];
+    invalidateUuid(fileId);
   }
 
-  // Get fresh uuid
-  const uuid = await getDownloadUuid(fileId);
-  if (!uuid) {
-    console.log('[GDrive] Could not extract uuid from confirmation page');
-    return null;
-  }
-
-  cachedUuids[fileId] = uuid;
-  const url = buildDownloadUrl(fileId, uuid);
-  console.log(`[GDrive] Fetching: ${url}`);
-  console.log(`[GDrive] Headers:`, JSON.stringify(headers));
-  const res = await fetch(url, { headers, redirect: 'follow' });
-  const ct = res.headers.get('content-type') || '';
-
-  if ((res.ok || res.status === 206) && !ct.includes('text/html')) {
-    console.log(`[GDrive] OK: ${res.status}`);
-    return res;
-  }
-
-  console.log(`[GDrive] Failed: ${res.status} (${ct.split(';')[0]}) url=${res.url}`);
-  res.body?.cancel();
   return null;
 }
 
@@ -77,6 +79,10 @@ export async function streamGdrive(req, res, file) {
     }
 
     if (total && end >= total) end = total - 1;
+    if (start > end) {
+      return res.writeHead(416, { 'Content-Range': `bytes */${total}` }), res.end();
+    }
+
     headers['Range'] = `bytes=${start}-${end}`;
 
     const driveRes = await fetchDrive(driveFileId, headers);
@@ -111,7 +117,11 @@ export async function streamGdrive(req, res, file) {
     pump();
   } catch (err) {
     console.error('[GDrive] Error:', err.message);
-    res.status(502).json({ error: `Google Drive proxy failed: ${err.message}` });
+    if (!res.headersSent) {
+      res.status(502).json({ error: `Google Drive proxy failed: ${err.message}` });
+    } else {
+      res.end();
+    }
   }
 }
 
