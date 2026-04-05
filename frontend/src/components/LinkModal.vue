@@ -1,9 +1,22 @@
 <script setup>
-import { ref, computed } from 'vue'
-import { linkGdrive, linkMega, uploadLocal } from '../api/client.js'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { linkGdrive, linkMega, linkTelegram, uploadLocal, getIntegrations } from '../api/client.js'
 
 const props = defineProps({ targetId: String })
 const emit = defineEmits(['close', 'linked'])
+const router = useRouter()
+
+const telegramConfigured = ref(false)
+const telegramLoggedIn = ref(false)
+
+onMounted(async () => {
+  try {
+    const data = await getIntegrations()
+    telegramConfigured.value = data.telegram.configured
+    telegramLoggedIn.value = data.telegram.logged_in
+  } catch { /* ignore */ }
+})
 
 const step = ref('choose')
 const source = ref('')
@@ -17,6 +30,9 @@ const driveUrl = ref('')
 // MEGA
 const megaUrl = ref('')
 
+// Telegram
+const telegramUrl = ref('')
+
 // Local file
 const selectedFile = ref(null)
 const fileInputRef = ref(null)
@@ -24,11 +40,17 @@ const fileInputRef = ref(null)
 const canSubmit = computed(() => {
   if (source.value === 'gdrive') return driveUrl.value.trim().length > 0
   if (source.value === 'mega') return megaUrl.value.trim().length > 0
+  if (source.value === 'telegram') return telegramUrl.value.trim().length > 0
   if (source.value === 'local') return selectedFile.value !== null
   return false
 })
 
 function selectSource(s) {
+  if (s === 'telegram' && !telegramLoggedIn.value) {
+    emit('close')
+    router.push('/settings')
+    return
+  }
   source.value = s
   step.value = 'form'
   error.value = ''
@@ -71,6 +93,8 @@ async function submit() {
       result = await linkGdrive(props.targetId, driveUrl.value, quality.value)
     } else if (source.value === 'mega') {
       result = await linkMega(props.targetId, megaUrl.value, quality.value)
+    } else if (source.value === 'telegram') {
+      result = await linkTelegram(props.targetId, telegramUrl.value, quality.value)
     } else {
       result = await uploadLocal(props.targetId, selectedFile.value, quality.value)
     }
@@ -90,7 +114,7 @@ async function submit() {
         <div class="modal-title-row">
           <button v-if="step === 'form'" class="back-btn" @click="goBack">&larr;</button>
           <h3>
-            {{ step === 'choose' ? 'Add File' : source === 'gdrive' ? 'Google Drive' : source === 'mega' ? 'MEGA' : 'Local File' }}
+            {{ step === 'choose' ? 'Add File' : source === 'gdrive' ? 'Google Drive' : source === 'mega' ? 'MEGA' : source === 'telegram' ? 'Telegram' : 'Local File' }}
           </h3>
         </div>
         <button class="modal-close" @click="emit('close')">&times;</button>
@@ -114,6 +138,11 @@ async function submit() {
             <div class="source-icon">&#9889;</div>
             <div class="source-label">MEGA</div>
             <div class="source-desc">Link a shared file from MEGA.nz</div>
+          </button>
+          <button class="source-card" :class="{ 'needs-setup': !telegramLoggedIn }" @click="selectSource('telegram')">
+            <div class="source-icon">&#9992;</div>
+            <div class="source-label">Telegram</div>
+            <div class="source-desc">{{ telegramLoggedIn ? 'Link a file from Telegram' : 'Setup required — click to configure' }}</div>
           </button>
         </div>
       </div>
@@ -144,6 +173,20 @@ async function submit() {
             <input
               v-model="megaUrl"
               placeholder="https://mega.nz/file/...#..."
+              autofocus
+              @keydown.enter="canSubmit && submit()"
+            />
+          </div>
+        </template>
+
+        <!-- Telegram form -->
+        <template v-if="source === 'telegram'">
+          <p class="modal-hint">Paste a Telegram message link containing a video file.</p>
+          <div class="form-group">
+            <label>Telegram Message Link</label>
+            <input
+              v-model="telegramUrl"
+              placeholder="https://t.me/c/1234567890/123"
               autofocus
               @keydown.enter="canSubmit && submit()"
             />
@@ -215,7 +258,7 @@ async function submit() {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  width: 480px;
+  width: 520px;
   max-width: 90vw;
   box-shadow: var(--shadow);
 }
@@ -272,7 +315,7 @@ async function submit() {
   line-height: 1.5;
 }
 
-.source-options { display: flex; gap: 12px; }
+.source-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .source-card {
   flex: 1;
   display: flex;
@@ -294,6 +337,9 @@ async function submit() {
 .source-icon { font-size: 32px; }
 .source-label { font-size: 14px; font-weight: 600; color: var(--text-primary); }
 .source-desc { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+.source-card.needs-setup { opacity: 0.7; border-style: dashed; }
+.source-card.needs-setup:hover { opacity: 1; border-color: #f59e0b; }
+.source-card.needs-setup .source-desc { color: #f59e0b; }
 
 .error-banner {
   padding: 10px 14px;

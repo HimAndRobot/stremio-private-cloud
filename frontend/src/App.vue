@@ -19,6 +19,10 @@ const router = useRouter()
           <span class="nav-icon">&#43;</span>
           Add Content
         </router-link>
+        <router-link to="/settings" class="nav-item">
+          <span class="nav-icon">&#9881;</span>
+          Settings
+        </router-link>
       </div>
     </nav>
     <main class="main-content">

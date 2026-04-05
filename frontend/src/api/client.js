@@ -54,6 +54,46 @@ export function linkMega(imdbId, megaUrl, quality) {
   });
 }
 
+export function getIntegrations() {
+  return request('/settings/integrations');
+}
+
+export function saveTelegram(apiId, apiHash) {
+  return request('/settings/integrations/telegram', {
+    method: 'POST',
+    body: JSON.stringify({ api_id: apiId, api_hash: apiHash }),
+  });
+}
+
+export function removeTelegram() {
+  return request('/settings/integrations/telegram', { method: 'DELETE' });
+}
+
+export function telegramSendCode(phone) {
+  return request('/settings/integrations/telegram/send-code', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  });
+}
+
+export function telegramVerifyCode(phone, code, phoneCodeHash) {
+  return request('/settings/integrations/telegram/verify-code', {
+    method: 'POST',
+    body: JSON.stringify({ phone, code, phoneCodeHash }),
+  });
+}
+
+export function telegramLogout() {
+  return request('/settings/integrations/telegram/logout', { method: 'POST' });
+}
+
+export function linkTelegram(imdbId, telegramUrl, quality) {
+  return request('/files/telegram', {
+    method: 'POST',
+    body: JSON.stringify({ imdb_id: imdbId, telegram_url: telegramUrl, quality }),
+  });
+}
+
 export async function uploadLocal(imdbId, file, quality) {
   const form = new FormData();
   form.append('video', file);

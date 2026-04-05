@@ -129,6 +129,7 @@ onMounted(load)
               <div class="file-meta">
                 <span v-if="f.source_type === 'gdrive'" class="source-badge gdrive">GDrive</span>
                 <span v-else-if="f.source_type === 'mega'" class="source-badge mega">MEGA</span>
+                <span v-else-if="f.source_type === 'telegram'" class="source-badge telegram">Telegram</span>
                 <span v-else class="source-badge local">Local</span>
                 {{ f.quality || '—' }} &middot; {{ formatSize(f.file_size) }}
               </div>
@@ -364,6 +365,7 @@ onMounted(load)
 .source-badge.local { background: #1a3a2a; color: #22c55e; }
 .source-badge.gdrive { background: #1a2a3a; color: #60a5fa; }
 .source-badge.mega { background: #3a1a1a; color: #f87171; }
+.source-badge.telegram { background: #1a2a3a; color: #38bdf8; }
 
 .btn-sm { padding: 6px 14px; font-size: 12px; }
 

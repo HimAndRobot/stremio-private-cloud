@@ -7,6 +7,7 @@ import { fileId } from '../utils/id.js';
 import { getMimeType, isVideoFile } from '../utils/mime.js';
 import { parseDriveFileId, probeDriveFile } from '../streaming/gdrive.js';
 import { parseMegaUrl, probeMegaFile } from '../streaming/mega.js';
+import { parseTelegramLink, getMessageFile } from '../streaming/telegram.js';
 import config from '../config.js';
 
 const upload = multer({
@@ -165,6 +166,46 @@ router.post('/mega', async (req, res) => {
     quality: quality || null,
     source_type: 'mega',
     source_meta: JSON.stringify({ megaUrl: validUrl }),
+  });
+
+  res.status(201).json(fileDb.getFile(id));
+});
+
+// Link a Telegram file
+router.post('/telegram', async (req, res) => {
+  const { imdb_id, telegram_url, quality } = req.body;
+  if (!imdb_id || !telegram_url) {
+    return res.status(400).json({ error: 'imdb_id and telegram_url are required' });
+  }
+
+  const parsed = parseTelegramLink(telegram_url);
+  if (!parsed) {
+    return res.status(400).json({ error: 'Invalid Telegram message link' });
+  }
+
+  let fileName = null;
+  let fileSize = null;
+  try {
+    const info = await getMessageFile(telegram_url);
+    fileName = info.fileName;
+    fileSize = info.fileSize;
+  } catch (err) {
+    return res.status(400).json({ error: `Failed to access Telegram file: ${err.message}` });
+  }
+
+  if (!fileName) fileName = 'telegram_file.mp4';
+
+  const id = fileId();
+  fileDb.createFile({
+    id,
+    imdb_id,
+    file_path: telegram_url,
+    file_name: fileName,
+    file_size: fileSize,
+    mime_type: getMimeType(fileName),
+    quality: quality || null,
+    source_type: 'telegram',
+    source_meta: JSON.stringify({ telegramUrl: telegram_url }),
   });
 
   res.status(201).json(fileDb.getFile(id));

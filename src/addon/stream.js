@@ -18,7 +18,7 @@ export function streamHandler(args) {
   const seriesImdb = isSeries ? videoId.split(':')[0] : null;
 
   const streams = files.map((file) => {
-    const isWebReady = file.mime_type === 'video/mp4' && _baseUrl.startsWith('https');
+    const isWebReady = file.source_type !== 'telegram' && file.mime_type === 'video/mp4' && _baseUrl.startsWith('https');
 
     return {
       url: `${_baseUrl}/video/${file.id}`,
