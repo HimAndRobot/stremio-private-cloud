@@ -1,7 +1,9 @@
 import { networkInterfaces } from 'os';
 
-// Get the first non-internal IPv4 address
+// Get the first non-internal IPv4 address (supports HOST_IP env for Docker)
 export function getLanIp() {
+  if (process.env.HOST_IP) return process.env.HOST_IP;
+
   const nets = networkInterfaces();
   for (const name of Object.keys(nets)) {
     for (const net of nets[name]) {
