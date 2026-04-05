@@ -1,0 +1,8 @@
+services:
+  stremio-private-cloud:
+    build: .
+    ports:
+      - "11780:11780"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
