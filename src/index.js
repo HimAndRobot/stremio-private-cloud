@@ -1,0 +1,87 @@
+import { readFileSync, mkdirSync, existsSync } from 'fs';
+import { createServer } from 'https';
+import { resolve } from 'path';
+import express from 'express';
+import cors from 'cors';
+import addonSdk from 'stremio-addon-sdk';
+const { addonBuilder, getRouter } = addonSdk;
+
+import config from './config.js';
+import { migrate } from './db/migrations.js';
+import { buildManifest } from './addon/manifest.js';
+import { catalogHandler } from './addon/catalog.js';
+import { streamHandler, setStreamBaseUrl } from './addon/stream.js';
+import streamingRouter from './streaming/router.js';
+import apiRouter from './api/router.js';
+import { getLanIp, getAddonUrl } from './utils/network.js';
+
+// Ensure data directories exist
+mkdirSync(config.uploadDir, { recursive: true });
+
+// Run database migrations
+migrate();
+
+// Build Stremio addon
+const manifest = buildManifest();
+const builder = new addonBuilder(manifest);
+
+builder.defineCatalogHandler(catalogHandler);
+builder.defineStreamHandler(streamHandler);
+
+// Create Express app
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Mount Stremio addon routes
+const addonRouter = getRouter(builder.getInterface());
+app.use('/', addonRouter);
+
+// Mount video streaming routes
+app.use('/', streamingRouter);
+
+// Mount management API
+app.use('/api', apiRouter);
+
+// Serve frontend static files
+const frontendDist = resolve(config.rootDir, 'frontend', 'dist');
+if (existsSync(frontendDist)) {
+  app.use('/admin', express.static(frontendDist));
+  app.use('/admin', (req, res) => {
+    res.sendFile(resolve(frontendDist, 'index.html'));
+  });
+}
+
+// Detect LAN IP and build URLs
+const lanIp = getLanIp();
+const baseUrl = getAddonUrl(lanIp, config.port);
+setStreamBaseUrl(baseUrl);
+
+// Load TLS certificates
+const certPath = resolve(config.certsDir, 'local-ip.pem');
+const keyPath = resolve(config.certsDir, 'local-ip.key');
+
+let cert, key;
+try {
+  cert = readFileSync(certPath);
+  key = readFileSync(keyPath);
+} catch {
+  console.error('Failed to load TLS certificates from', config.certsDir);
+  console.error('Run: curl -s https://local-ip.medicmobile.org/fullchain -o certs/local-ip.pem');
+  console.error('     curl -s https://local-ip.medicmobile.org/key -o certs/local-ip.key');
+  process.exit(1);
+}
+
+// Start HTTPS server
+const server = createServer({ cert, key }, app);
+
+server.listen(config.port, config.host, () => {
+  console.log('');
+  console.log('  Stremio Private Cloud is running!');
+  console.log('');
+  console.log(`  Admin UI:     ${baseUrl}/admin`);
+  console.log(`  Addon URL:    ${baseUrl}/manifest.json`);
+  console.log('');
+  console.log('  Paste the Addon URL in Stremio > Settings > Addons > Install from URL');
+  console.log('');
+});

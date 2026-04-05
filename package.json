@@ -1,0 +1,27 @@
+{
+  "name": "stremio-private-cloud",
+  "version": "1.0.0",
+  "description": "Self-hosted Stremio addon for serving local video files as a private catalog",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": [
+    "stremio",
+    "addon",
+    "private-cloud",
+    "streaming"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^12.8.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "mime-types": "^3.0.2",
+    "multer": "^2.1.1",
+    "stremio-addon-sdk": "^1.6.10",
+    "uuid": "^13.0.0"
+  }
+}
