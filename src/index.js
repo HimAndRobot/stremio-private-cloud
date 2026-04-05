@@ -10,7 +10,7 @@ import config from './config.js';
 import { migrate } from './db/migrations.js';
 import { buildManifest } from './addon/manifest.js';
 import { catalogHandler } from './addon/catalog.js';
-import { streamHandler, setStreamBaseUrl } from './addon/stream.js';
+import { streamHandler, setStreamBaseUrl, updateBaseUrlFromRequest } from './addon/stream.js';
 import streamingRouter from './streaming/router.js';
 import apiRouter from './api/router.js';
 import { getLanIp, getAddonUrl } from './utils/network.js';
@@ -32,6 +32,12 @@ builder.defineStreamHandler(streamHandler);
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Capture real hostname from first request for stream URLs
+app.use((req, res, next) => {
+  updateBaseUrlFromRequest(req);
+  next();
+});
 
 // Mount Stremio addon routes
 const addonRouter = getRouter(builder.getInterface());
