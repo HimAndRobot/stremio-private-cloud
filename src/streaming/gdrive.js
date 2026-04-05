@@ -36,16 +36,19 @@ function buildDownloadUrl(fileId, uuid) {
   return `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t&uuid=${uuid}`;
 }
 
-// Fetch from Google Drive with uuid, retry once on failure
+// Fetch from Google Drive with uuid, retry with delay
 async function fetchDrive(fileId, headers = {}) {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const uuid = await getDownloadUuid(fileId);
-    if (!uuid) {
-      console.log('[GDrive] Could not extract uuid');
-      return null;
-    }
+  const uuid = await getDownloadUuid(fileId);
+  if (!uuid) {
+    console.log('[GDrive] Could not extract uuid');
+    return null;
+  }
 
-    const url = buildDownloadUrl(fileId, uuid);
+  const url = buildDownloadUrl(fileId, uuid);
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * attempt));
+
     const res = await fetch(url, { headers, redirect: 'follow' });
     const ct = res.headers.get('content-type') || '';
 
@@ -53,9 +56,18 @@ async function fetchDrive(fileId, headers = {}) {
       return res;
     }
 
-    console.log(`[GDrive] Retry ${attempt + 1}/2 | uuid=${uuid.slice(0,8)}... | range=${headers['Range'] || 'none'} | drive responded with HTML`);
+    console.log(`[GDrive] Retry ${attempt + 1}/3 | range=${headers['Range'] || 'none'}`);
     res.body?.cancel();
-    invalidateUuid(fileId);
+  }
+
+  // Last resort: get fresh uuid
+  invalidateUuid(fileId);
+  const freshUuid = await getDownloadUuid(fileId);
+  if (freshUuid) {
+    const res = await fetch(buildDownloadUrl(fileId, freshUuid), { headers, redirect: 'follow' });
+    const ct = res.headers.get('content-type') || '';
+    if ((res.ok || res.status === 206) && !ct.includes('text/html')) return res;
+    res.body?.cancel();
   }
 
   return null;
