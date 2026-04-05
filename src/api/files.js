@@ -216,6 +216,18 @@ router.get('/by-imdb/:imdbId', (req, res) => {
   res.json(fileDb.getFilesByContentImdb(req.params.imdbId));
 });
 
+// Rename a file
+router.put('/:id', (req, res) => {
+  const file = fileDb.getFile(req.params.id);
+  if (!file) return res.status(404).json({ error: 'Not found' });
+
+  const { file_name } = req.body;
+  if (!file_name?.trim()) return res.status(400).json({ error: 'file_name is required' });
+
+  fileDb.updateFileName(req.params.id, file_name.trim());
+  res.json(fileDb.getFile(req.params.id));
+});
+
 // Delete a file
 router.delete('/:id', (req, res) => {
   const file = fileDb.getFile(req.params.id);

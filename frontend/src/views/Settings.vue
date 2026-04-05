@@ -1,6 +1,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getIntegrations, saveTelegram, removeTelegram, telegramSendCode, telegramVerifyCode, telegramLogout } from '../api/client.js'
+import { useRouter } from 'vue-router'
+import { getIntegrations, saveTelegram, removeTelegram, telegramSendCode, telegramVerifyCode, telegramLogout, resetAllData } from '../api/client.js'
+
+const router = useRouter()
 
 const integrations = ref(null)
 const loading = ref(true)
@@ -84,6 +87,13 @@ async function verifyCode() {
 async function logoutTg() {
   await telegramLogout()
   await load()
+}
+
+async function resetData() {
+  if (!confirm('This will delete ALL content, files, folders, and settings. This cannot be undone. Are you sure?')) return
+  if (!confirm('Really? Everything will be permanently deleted.')) return
+  await resetAllData()
+  router.push('/')
 }
 
 onMounted(load)
@@ -241,6 +251,21 @@ onMounted(load)
             </div>
           </div>
           <p class="coming-text">Additional storage providers will be added in future updates.</p>
+        </div>
+      </section>
+
+      <section class="settings-section danger-section">
+        <div class="section-title">
+          <h2>Danger Zone</h2>
+          <p class="section-desc">Irreversible actions.</p>
+        </div>
+
+        <div class="danger-card">
+          <div class="danger-info">
+            <div class="danger-title">Reset all data</div>
+            <div class="danger-desc">Delete all content, files, folders, and settings. Uploaded files will be removed from disk. This cannot be undone.</div>
+          </div>
+          <button class="btn-danger" @click="resetData">Reset Everything</button>
         </div>
       </section>
     </template>
@@ -404,6 +429,18 @@ h1 { font-size: 28px; font-weight: 700; margin-bottom: 32px; }
 .login-form { margin-top: 4px; }
 
 .coming-text { font-size: 13px; color: var(--text-muted); }
+
+.danger-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+}
+.danger-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.danger-desc { font-size: 12px; color: var(--text-muted); margin-top: 4px; max-width: 400px; }
 
 .loading {
   text-align: center;

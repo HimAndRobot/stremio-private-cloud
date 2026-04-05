@@ -1,5 +1,8 @@
 import { Router } from 'express';
+import { readdirSync, unlinkSync } from 'fs';
+import { resolve } from 'path';
 import { getDb } from '../db/connection.js';
+import config from '../config.js';
 
 const router = Router();
 
@@ -84,6 +87,32 @@ router.delete('/integrations/telegram', (req, res) => {
   const db = getDb();
   db.prepare("DELETE FROM settings WHERE key LIKE 'telegram_%'").run();
   res.json({ deleted: true });
+});
+
+// Reset all data — wipe database and uploads
+router.delete('/reset', (req, res) => {
+  const db = getDb();
+  db.exec('DELETE FROM files');
+  db.exec('DELETE FROM content');
+  db.exec('DELETE FROM folders');
+  db.exec('DELETE FROM settings');
+
+  // Clear uploads directory
+  try {
+    for (const f of readdirSync(config.uploadDir)) {
+      unlinkSync(resolve(config.uploadDir, f));
+    }
+  } catch { /* ignore */ }
+
+  // Clear gdrive cache
+  try {
+    const cacheDir = resolve(config.dataDir, 'gdrive_cache');
+    for (const f of readdirSync(cacheDir)) {
+      unlinkSync(resolve(cacheDir, f));
+    }
+  } catch { /* ignore */ }
+
+  res.json({ reset: true });
 });
 
 export default router;

@@ -12,6 +12,7 @@ export async function getMetadata(imdbId, type = 'series') {
         year: data.meta.year || null,
         poster: data.meta.poster || null,
         type: data.meta.type || type,
+        description: data.meta.description || null,
         videos: data.meta.videos || [],
       };
     }

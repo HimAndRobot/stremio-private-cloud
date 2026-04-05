@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { getContent, deleteContent, deleteFile } from '../api/client.js'
+import { getContent, deleteContent, deleteFile, renameFile } from '../api/client.js'
 import LinkModal from '../components/LinkModal.vue'
 
 const props = defineProps({ imdbId: String })
@@ -14,6 +14,8 @@ const loading = ref(true)
 
 const showModal = ref(false)
 const modalTarget = ref('')
+const editingFile = ref(null)
+const editFileName = ref('')
 
 // Group episodes by season from Cinemeta metadata
 const seasons = computed(() => {
@@ -78,6 +80,19 @@ function onLinked(result) {
   showModal.value = false
 }
 
+function startEditFile(f) {
+  editingFile.value = f
+  editFileName.value = f.file_name
+}
+
+async function submitEditFile() {
+  if (!editFileName.value.trim() || !editingFile.value) return
+  const updated = await renameFile(editingFile.value.id, editFileName.value.trim())
+  const idx = files.value.findIndex(f => f.id === editingFile.value.id)
+  if (idx >= 0) files.value[idx] = updated
+  editingFile.value = null
+}
+
 function formatSize(bytes) {
   if (!bytes) return '—'
   const gb = bytes / (1024 * 1024 * 1024)
@@ -108,7 +123,13 @@ onMounted(load)
               <span v-if="content.year">{{ content.year }}</span>
               <span class="imdb-id">{{ content.imdb_id }}</span>
             </div>
+            <p v-if="meta?.videos?.[0]?.overview || meta?.description" class="hero-description">
+              {{ meta.description || meta.videos[0].overview }}
+            </p>
             <div class="hero-actions">
+              <a :href="`https://www.imdb.com/title/${content.imdb_id}`" target="_blank" class="btn-external" title="Open on IMDB">
+                &#8599; IMDB
+              </a>
               <button class="btn-danger" @click="remove">Remove from Library</button>
             </div>
           </div>
@@ -125,7 +146,12 @@ onMounted(load)
           <div v-for="f in fileMap[content.imdb_id]" :key="f.id" class="file-row">
             <div class="file-icon">&#128196;</div>
             <div class="file-info">
-              <div class="file-name">{{ f.file_name }}</div>
+              <div v-if="editingFile?.id === f.id" class="file-name-edit">
+                <input v-model="editFileName" @keydown.enter="submitEditFile" @keydown.escape="editingFile = null" autofocus />
+                <button class="btn-primary btn-xs" @click="submitEditFile">Save</button>
+                <button class="btn-ghost btn-xs" @click="editingFile = null">Cancel</button>
+              </div>
+              <div v-else class="file-name">{{ f.file_name }}</div>
               <div class="file-meta">
                 <span v-if="f.source_type === 'gdrive'" class="source-badge gdrive">GDrive</span>
                 <span v-else-if="f.source_type === 'mega'" class="source-badge mega">MEGA</span>
@@ -134,7 +160,11 @@ onMounted(load)
                 {{ f.quality || '—' }} &middot; {{ formatSize(f.file_size) }}
               </div>
             </div>
-            <button class="btn-danger btn-sm" @click="removeFile(f.id)">Delete</button>
+            <div class="file-actions">
+              <button class="btn-ext btn-sm" @click="startEditFile(f)" title="Rename">&#9998;</button>
+              <a v-if="f.source_type !== 'local'" :href="f.file_path" target="_blank" class="btn-ext btn-sm" title="Open source link">&#8599;</a>
+              <button class="btn-danger btn-sm" @click="removeFile(f.id)">Delete</button>
+            </div>
           </div>
         </div>
         <div v-else class="no-files">No files yet. Click "+ Add File" to link one.</div>
@@ -193,7 +223,10 @@ onMounted(load)
                     {{ f.quality || '—' }} &middot; {{ formatSize(f.file_size) }}
                   </div>
                 </div>
-                <button class="btn-danger btn-sm" @click="removeFile(f.id)">Delete</button>
+                <div class="file-actions">
+              <a v-if="f.source_type !== 'local'" :href="f.file_path" target="_blank" class="btn-ext btn-sm" title="Open source link">&#8599;</a>
+              <button class="btn-danger btn-sm" @click="removeFile(f.id)">Delete</button>
+            </div>
               </div>
             </div>
           </div>
@@ -256,7 +289,31 @@ onMounted(load)
   font-size: 14px;
 }
 .imdb-id { font-family: monospace; color: var(--text-muted); }
-.hero-actions { margin-top: 12px; }
+.hero-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 500px;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.hero-actions { margin-top: 12px; display: flex; gap: 8px; }
+.btn-external {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+.btn-external:hover { background: var(--bg-hover); color: var(--text-primary); }
 
 .section { margin-bottom: 32px; }
 .section-header {
@@ -368,6 +425,24 @@ onMounted(load)
 .source-badge.telegram { background: #1a2a3a; color: #38bdf8; }
 
 .btn-sm { padding: 6px 14px; font-size: 12px; }
+.btn-xs { padding: 4px 10px; font-size: 11px; }
+.file-name-edit {
+  display: flex; gap: 6px; align-items: center;
+}
+.file-name-edit input {
+  flex: 1; padding: 4px 8px; font-size: 13px;
+  background: var(--bg-input); border: 1px solid var(--accent);
+  border-radius: 4px; color: var(--text-primary); outline: none;
+}
+.file-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.btn-ext {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 6px 10px;
+  background: var(--bg-card); color: var(--text-secondary);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 14px; text-decoration: none; transition: all 0.2s;
+}
+.btn-ext:hover { background: var(--bg-hover); color: var(--accent); }
 
 .no-files {
   text-align: center;

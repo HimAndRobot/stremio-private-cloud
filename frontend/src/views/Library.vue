@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { getLibrary, deleteContent, getFolders, getFolderPath, createFolder, deleteFolder, moveContentToFolder, moveFolderToFolder } from '../api/client.js'
+import { getLibrary, deleteContent, getFolders, getFolderPath, createFolder, deleteFolder, renameFolder, moveContentToFolder, moveFolderToFolder } from '../api/client.js'
 import MoveModal from '../components/MoveModal.vue'
 
 const router = useRouter()
@@ -16,6 +16,9 @@ const copied = ref(false)
 const showNewFolder = ref(false)
 const newFolderName = ref('')
 const showFilter = ref(false)
+const showRenameModal = ref(false)
+const renameTarget = ref(null)
+const renameValue = ref('')
 const showMoveModal = ref(false)
 const moveItem = ref(null)
 const moveItemType = ref('')
@@ -127,6 +130,19 @@ function navigateFolder(folderId) {
   router.push({ path: '/', query: folderId ? { folder: folderId } : {} })
 }
 
+function openRename(folder) {
+  renameTarget.value = folder
+  renameValue.value = folder.name
+  showRenameModal.value = true
+}
+
+async function submitRename() {
+  if (!renameValue.value.trim() || !renameTarget.value) return
+  await renameFolder(renameTarget.value.id, renameValue.value.trim())
+  showRenameModal.value = false
+  await load()
+}
+
 function openMoveModal(item, type) {
   moveItem.value = item
   moveItemType.value = type
@@ -158,6 +174,71 @@ async function addFolder() {
   folders.value.push(folder)
   newFolderName.value = ''
   showNewFolder.value = false
+}
+
+// Combined move/drag handler - click opens modal, drag starts dragging
+// Card: click opens view, drag starts dragging
+function startCardAction(e, item, type, clickAction) {
+  if (e.target.closest('button, a, .edit-btn, .move-btn, .delete-btn')) return
+  const startX = e.clientX
+  const startY = e.clientY
+  const rect = e.currentTarget.getBoundingClientRect()
+
+  function onMove(ev) {
+    if (Math.abs(ev.clientX - startX) > 6 || Math.abs(ev.clientY - startY) > 6) {
+      cleanup()
+      dragging.value = item
+      dragType.value = type
+      dragOffset.value = { x: startX - rect.left, y: startY - rect.top }
+      dragPos.value = { x: startX, y: startY }
+      dragActive.value = true
+      document.addEventListener('mousemove', onDragMove)
+      document.addEventListener('mouseup', onDragEnd)
+    }
+  }
+  function onUp() {
+    cleanup()
+    clickAction()
+  }
+  function cleanup() {
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
+
+function startMoveOrDrag(e, item, type) {
+  e.preventDefault()
+  e.stopPropagation()
+  const startX = e.clientX
+  const startY = e.clientY
+  const rect = e.currentTarget.getBoundingClientRect()
+
+  function onMove(ev) {
+    if (Math.abs(ev.clientX - startX) > 4 || Math.abs(ev.clientY - startY) > 4) {
+      cleanup()
+      dragging.value = item
+      dragType.value = type
+      dragOffset.value = { x: startX - rect.left, y: startY - rect.top }
+      dragPos.value = { x: startX, y: startY }
+      dragActive.value = true
+      document.addEventListener('mousemove', onDragMove)
+      document.addEventListener('mouseup', onDragEnd)
+    }
+  }
+  function onUp() {
+    cleanup()
+    openMoveModal(item, type)
+  }
+  function cleanup() {
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
 }
 
 // Drag & drop
@@ -321,7 +402,10 @@ watch(() => route.query.folder, () => {
 
     <!-- Header -->
     <div class="library-header">
-      <h1>{{ breadcrumb.length ? breadcrumb[breadcrumb.length - 1].name : 'My Library' }}</h1>
+      <div class="header-left">
+        <h1>{{ breadcrumb.length ? breadcrumb[breadcrumb.length - 1].name : 'My Library' }}</h1>
+        <button v-if="breadcrumb.length" class="header-edit-btn" @click="openRename(breadcrumb[breadcrumb.length - 1])" title="Rename folder">&#9998;</button>
+      </div>
       <div class="header-actions">
         <div class="filter-wrapper">
           <button class="btn-filter" :class="{ active: hasActiveFilter }" @click="showFilter = !showFilter">
@@ -395,7 +479,7 @@ watch(() => route.query.folder, () => {
         class="poster-card folder-card"
         :data-folder-id="folder.id"
         :class="{ 'ghost': isDragging(folder, 'folder'), 'drop-hover': dropTarget === folder.id }"
-        @click="navigateFolder(folder.id)"
+        @mousedown="startCardAction($event, folder, 'folder', () => navigateFolder(folder.id))"
       >
         <div class="poster-image folder-image">
           <div class="folder-preview">
@@ -413,7 +497,7 @@ watch(() => route.query.folder, () => {
             <div class="overlay-top">
               <span class="type-badge folder-badge">Folder</span>
               <div class="overlay-right">
-                <div class="move-handle" @mousedown.stop="startDrag($event, folder, 'folder')" @click.stop title="Drag">&#9776;</div>
+                <button class="edit-btn" @click.stop="openRename(folder)" title="Rename">&#9998;</button>
                 <button class="move-btn" @click.stop="openMoveModal(folder, 'folder')" title="Move to...">&#8596;</button>
                 <button class="delete-btn" @click.stop="removeFolder(folder.id)" title="Delete folder">&#10005;</button>
               </div>
@@ -438,7 +522,7 @@ watch(() => route.query.folder, () => {
         :key="item.imdb_id"
         class="poster-card"
         :class="{ 'ghost': isDragging(item, 'content') }"
-        @click="router.push(`/content/${item.imdb_id}`)"
+        @mousedown="startCardAction($event, item, 'content', () => router.push(`/content/${item.imdb_id}`))"
       >
         <div class="poster-image">
           <img v-if="item.poster" :src="item.poster" :alt="item.name" />
@@ -449,7 +533,6 @@ watch(() => route.query.folder, () => {
             <div class="overlay-top">
               <span class="type-badge">{{ item.type }}</span>
               <div class="overlay-right">
-                <div class="move-handle" @mousedown.stop="startDrag($event, item, 'content')" @click.stop title="Drag">&#9776;</div>
                 <button class="move-btn" @click.stop="openMoveModal(item, 'content')" title="Move to...">&#8596;</button>
                 <button class="delete-btn" @click.stop="remove(item.imdb_id)" title="Remove">&#10005;</button>
               </div>
@@ -489,6 +572,31 @@ watch(() => route.query.folder, () => {
         <div class="modal-footer">
           <button class="btn-ghost" @click="showNewFolder = false">Cancel</button>
           <button class="btn-primary" @click="addFolder" :disabled="!newFolderName.trim()">Create Folder</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rename modal -->
+    <div v-if="showRenameModal" class="modal-overlay" @click.self="showRenameModal = false">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Rename Folder</h3>
+          <button class="modal-close" @click="showRenameModal = false">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Folder name</label>
+            <input
+              v-model="renameValue"
+              autofocus
+              @keydown.enter="submitRename"
+              @keydown.escape="showRenameModal = false"
+            />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-ghost" @click="showRenameModal = false">Cancel</button>
+          <button class="btn-primary" @click="submitRename" :disabled="!renameValue.trim()">Rename</button>
         </div>
       </div>
     </div>
@@ -732,11 +840,17 @@ watch(() => route.query.folder, () => {
 }
 
 /* Poster card */
-.poster-card {
+.poster-card, .poster-card * {
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+.poster-card {
   transition: transform 0.2s, box-shadow 0.2s;
   position: relative;
 }
+.poster-card img { pointer-events: none; }
 .poster-card:hover { transform: translateY(-4px); }
 .poster-card.ghost { opacity: 0.3; pointer-events: none; }
 
@@ -856,6 +970,22 @@ watch(() => route.query.folder, () => {
   background: linear-gradient(135deg, #1e1f2e, #16171f);
   font-size: 24px;
 }
+
+/* Edit button */
+.edit-btn {
+  width: 28px; height: 28px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.2); color: white;
+  border-radius: 50%; font-size: 14px; cursor: pointer;
+}
+.edit-btn:hover { background: rgba(255,255,255,0.4); }
+
+.header-edit-btn {
+  background: none; color: var(--text-muted);
+  font-size: 18px; padding: 4px 8px;
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.header-edit-btn:hover { color: var(--accent); background: var(--bg-hover); }
 
 /* Move button */
 .move-btn {

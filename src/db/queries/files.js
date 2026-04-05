@@ -26,6 +26,12 @@ export function createFile({ id, imdb_id, file_path, file_name, file_size, mime_
   ).run(id, imdb_id, file_path, file_name, file_size, mime_type, quality, source_type || 'local', source_meta || null);
 }
 
+// Update file name
+export function updateFileName(id, fileName) {
+  const db = getDb();
+  return db.prepare('UPDATE files SET file_name = ? WHERE id = ?').run(fileName, id);
+}
+
 // Delete a file entry
 export function deleteFile(id) {
   const db = getDb();

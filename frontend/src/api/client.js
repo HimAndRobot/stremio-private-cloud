@@ -53,6 +53,13 @@ export function createFolder(name, parentId) {
   });
 }
 
+export function renameFolder(folderId, name) {
+  return request(`/folders/${folderId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name }),
+  });
+}
+
 export function deleteFolder(folderId) {
   return request(`/folders/${folderId}`, { method: 'DELETE' });
 }
@@ -75,6 +82,13 @@ export function deleteContent(imdbId) {
   return request(`/content/${imdbId}`, { method: 'DELETE' });
 }
 
+export function renameFile(fileId, fileName) {
+  return request(`/files/${fileId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ file_name: fileName }),
+  });
+}
+
 export function deleteFile(fileId) {
   return request(`/files/${fileId}`, { method: 'DELETE' });
 }
@@ -91,6 +105,10 @@ export function linkMega(imdbId, megaUrl, quality) {
     method: 'POST',
     body: JSON.stringify({ imdb_id: imdbId, mega_url: megaUrl, quality }),
   });
+}
+
+export function resetAllData() {
+  return request('/settings/reset', { method: 'DELETE' });
 }
 
 export function getIntegrations() {
