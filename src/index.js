@@ -10,7 +10,7 @@ import config from './config.js';
 import { migrate } from './db/migrations.js';
 import { buildManifest } from './addon/manifest.js';
 import { catalogHandler } from './addon/catalog.js';
-import { streamHandler, setStreamBaseUrl } from './addon/stream.js';
+import { streamHandler, setStreamBaseUrl, updateBaseUrlFromRequest } from './addon/stream.js';
 import streamingRouter from './streaming/router.js';
 import apiRouter from './api/router.js';
 import { getLanIp, getAddonUrl } from './utils/network.js';
@@ -32,6 +32,12 @@ builder.defineStreamHandler(streamHandler);
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Capture real hostname from first request for stream URLs
+app.use((req, res, next) => {
+  updateBaseUrlFromRequest(req);
+  next();
+});
 
 // Mount Stremio addon routes
 const addonRouter = getRouter(builder.getInterface());
@@ -75,13 +81,19 @@ try {
 // Start HTTPS server
 const server = createServer({ cert, key }, app);
 
+// API endpoint so frontend can build the correct addon URL
+app.get('/api/server-info', (req, res) => {
+  let host = req.headers.host || '';
+  if (!host.includes(':')) host = `${host}:${config.port}`;
+  res.json({
+    addonUrl: `https://${host}/manifest.json`,
+    adminUrl: `https://${host}/admin`,
+  });
+});
+
 server.listen(config.port, config.host, () => {
   console.log('');
   console.log('  Stremio Private Cloud is running!');
-  console.log('');
-  console.log(`  Admin UI:     ${baseUrl}/admin`);
-  console.log(`  Addon URL:    ${baseUrl}/manifest.json`);
-  console.log('');
-  console.log('  Paste the Addon URL in Stremio > Settings > Addons > Install from URL');
+  console.log(`  Admin: ${baseUrl}/admin`);
   console.log('');
 });

@@ -1,10 +1,24 @@
 import { getFilesByImdb } from '../db/queries/files.js';
 
 let _baseUrl = '';
+let _port = 11780;
 
-// Set the base URL used for stream URLs (called at server startup)
+// Set fallback base URL (called at server startup)
 export function setStreamBaseUrl(url) {
   _baseUrl = url;
+}
+
+// Set port for dynamic URL building
+export function setStreamPort(port) {
+  _port = port;
+}
+
+// Update base URL from an incoming request's Host header
+export function updateBaseUrlFromRequest(req) {
+  const host = req.headers.host;
+  if (host && !_baseUrl.includes(host)) {
+    _baseUrl = `https://${host}`;
+  }
 }
 
 // Handle stream requests from Stremio
