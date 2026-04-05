@@ -1,8 +1,9 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { getContent, deleteContent, deleteFile, renameFile } from '../api/client.js'
+import { getContent, deleteContent } from '../api/client.js'
 import LinkModal from '../components/LinkModal.vue'
+import FileRow from '../components/FileRow.vue'
 
 const props = defineProps({ imdbId: String })
 const router = useRouter()
@@ -14,8 +15,6 @@ const loading = ref(true)
 
 const showModal = ref(false)
 const modalTarget = ref('')
-const editingFile = ref(null)
-const editFileName = ref('')
 
 // Group episodes by season from Cinemeta metadata
 const seasons = computed(() => {
@@ -65,9 +64,13 @@ async function remove() {
   router.push('/')
 }
 
-async function removeFile(fileId) {
-  await deleteFile(fileId)
+function onFileDeleted(fileId) {
   files.value = files.value.filter(f => f.id !== fileId)
+}
+
+function onFileUpdated(updated) {
+  const idx = files.value.findIndex(f => f.id === updated.id)
+  if (idx >= 0) files.value[idx] = updated
 }
 
 function openLink(videoId) {
@@ -78,19 +81,6 @@ function openLink(videoId) {
 function onLinked(result) {
   files.value.push(result)
   showModal.value = false
-}
-
-function startEditFile(f) {
-  editingFile.value = f
-  editFileName.value = f.file_name
-}
-
-async function submitEditFile() {
-  if (!editFileName.value.trim() || !editingFile.value) return
-  const updated = await renameFile(editingFile.value.id, editFileName.value.trim())
-  const idx = files.value.findIndex(f => f.id === editingFile.value.id)
-  if (idx >= 0) files.value[idx] = updated
-  editingFile.value = null
 }
 
 function formatSize(bytes) {
@@ -143,29 +133,13 @@ onMounted(load)
           <button class="btn-primary" @click="openLink(content.imdb_id)">+ Add File</button>
         </div>
         <div v-if="fileMap[content.imdb_id]?.length" class="file-list">
-          <div v-for="f in fileMap[content.imdb_id]" :key="f.id" class="file-row">
-            <div class="file-icon">&#128196;</div>
-            <div class="file-info">
-              <div v-if="editingFile?.id === f.id" class="file-name-edit">
-                <input v-model="editFileName" @keydown.enter="submitEditFile" @keydown.escape="editingFile = null" autofocus />
-                <button class="btn-primary btn-xs" @click="submitEditFile">Save</button>
-                <button class="btn-ghost btn-xs" @click="editingFile = null">Cancel</button>
-              </div>
-              <div v-else class="file-name">{{ f.file_name }}</div>
-              <div class="file-meta">
-                <span v-if="f.source_type === 'gdrive'" class="source-badge gdrive">GDrive</span>
-                <span v-else-if="f.source_type === 'mega'" class="source-badge mega">MEGA</span>
-                <span v-else-if="f.source_type === 'telegram'" class="source-badge telegram">Telegram</span>
-                <span v-else class="source-badge local">Local</span>
-                {{ f.quality || '—' }} &middot; {{ formatSize(f.file_size) }}
-              </div>
-            </div>
-            <div class="file-actions">
-              <button class="btn-ext btn-sm" @click="startEditFile(f)" title="Rename">&#9998;</button>
-              <a v-if="f.source_type !== 'local'" :href="f.file_path" target="_blank" class="btn-ext btn-sm" title="Open source link">&#8599;</a>
-              <button class="btn-danger btn-sm" @click="removeFile(f.id)">Delete</button>
-            </div>
-          </div>
+          <FileRow
+            v-for="f in fileMap[content.imdb_id]"
+            :key="f.id"
+            :file="f"
+            @deleted="onFileDeleted"
+            @updated="onFileUpdated"
+          />
         </div>
         <div v-else class="no-files">No files yet. Click "+ Add File" to link one.</div>
       </div>
@@ -209,25 +183,14 @@ onMounted(load)
 
             <!-- Files for this episode -->
             <div v-if="fileMap[`${content.imdb_id}:${ep.season}:${ep.episode}`]?.length" class="ep-files">
-              <div
+              <FileRow
                 v-for="f in fileMap[`${content.imdb_id}:${ep.season}:${ep.episode}`]"
                 :key="f.id"
-                class="file-row compact"
-              >
-                <div class="file-icon">&#128196;</div>
-                <div class="file-info">
-                  <div class="file-name">{{ f.file_name }}</div>
-                  <div class="file-meta">
-                    <span v-if="f.source_type === 'gdrive'" class="source-badge gdrive">GDrive</span>
-                    <span v-else class="source-badge local">Local</span>
-                    {{ f.quality || '—' }} &middot; {{ formatSize(f.file_size) }}
-                  </div>
-                </div>
-                <div class="file-actions">
-              <a v-if="f.source_type !== 'local'" :href="f.file_path" target="_blank" class="btn-ext btn-sm" title="Open source link">&#8599;</a>
-              <button class="btn-danger btn-sm" @click="removeFile(f.id)">Delete</button>
-            </div>
-              </div>
+                :file="f"
+                compact
+                @deleted="onFileDeleted"
+                @updated="onFileUpdated"
+              />
             </div>
           </div>
         </div>
@@ -387,62 +350,6 @@ onMounted(load)
 }
 
 .file-list { display: flex; flex-direction: column; gap: 8px; }
-
-.file-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.file-row.compact { padding: 8px 12px; background: var(--bg-card); }
-
-.file-icon { font-size: 20px; flex-shrink: 0; }
-.file-info { flex: 1; min-width: 0; }
-.file-name {
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.file-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-
-.source-badge {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  padding: 1px 6px;
-  border-radius: 3px;
-  margin-right: 4px;
-}
-.source-badge.local { background: #1a3a2a; color: #22c55e; }
-.source-badge.gdrive { background: #1a2a3a; color: #60a5fa; }
-.source-badge.mega { background: #3a1a1a; color: #f87171; }
-.source-badge.telegram { background: #1a2a3a; color: #38bdf8; }
-
-.btn-sm { padding: 6px 14px; font-size: 12px; }
-.btn-xs { padding: 4px 10px; font-size: 11px; }
-.file-name-edit {
-  display: flex; gap: 6px; align-items: center;
-}
-.file-name-edit input {
-  flex: 1; padding: 4px 8px; font-size: 13px;
-  background: var(--bg-input); border: 1px solid var(--accent);
-  border-radius: 4px; color: var(--text-primary); outline: none;
-}
-.file-actions { display: flex; gap: 6px; flex-shrink: 0; }
-.btn-ext {
-  display: inline-flex; align-items: center; justify-content: center;
-  padding: 6px 10px;
-  background: var(--bg-card); color: var(--text-secondary);
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  font-size: 14px; text-decoration: none; transition: all 0.2s;
-}
-.btn-ext:hover { background: var(--bg-hover); color: var(--accent); }
 
 .no-files {
   text-align: center;
