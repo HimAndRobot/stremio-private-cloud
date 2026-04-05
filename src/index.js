@@ -81,13 +81,24 @@ try {
 // Start HTTPS server
 const server = createServer({ cert, key }, app);
 
+// API endpoint so frontend can build the correct addon URL
+app.get('/api/server-info', (req, res) => {
+  const host = req.headers.host;
+  res.json({
+    addonUrl: `https://${host}/manifest.json`,
+    adminUrl: `https://${host}/admin`,
+  });
+});
+
 server.listen(config.port, config.host, () => {
   console.log('');
-  console.log('  Stremio Private Cloud is running!');
+  console.log('  Stremio Private Cloud is running on port ' + config.port);
   console.log('');
-  console.log(`  Admin UI:     ${baseUrl}/admin`);
-  console.log(`  Addon URL:    ${baseUrl}/manifest.json`);
-  console.log('');
-  console.log('  Paste the Addon URL in Stremio > Settings > Addons > Install from URL');
+  if (lanIp !== '127.0.0.1') {
+    console.log(`  Admin UI:     ${baseUrl}/admin`);
+    console.log(`  Addon URL:    ${baseUrl}/manifest.json`);
+  } else {
+    console.log('  Open the Admin UI from your browser to see the correct URLs.');
+  }
   console.log('');
 });

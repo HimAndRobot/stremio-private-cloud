@@ -7,6 +7,7 @@ const router = useRouter()
 const items = ref([])
 const filter = ref('all')
 const loading = ref(true)
+const addonUrl = ref('')
 
 const filtered = computed(() => {
   if (filter.value === 'all') return items.value
@@ -16,6 +17,11 @@ const filtered = computed(() => {
 async function load() {
   loading.value = true
   items.value = await getLibrary()
+  try {
+    const res = await fetch('/api/server-info')
+    const info = await res.json()
+    addonUrl.value = info.addonUrl
+  } catch { /* ignore */ }
   loading.value = false
 }
 
@@ -30,6 +36,12 @@ onMounted(load)
 
 <template>
   <div class="library">
+    <div v-if="addonUrl" class="addon-bar">
+      <span class="addon-label">Addon URL:</span>
+      <code class="addon-url" @click="navigator.clipboard.writeText(addonUrl)">{{ addonUrl }}</code>
+      <span class="addon-hint">click to copy</span>
+    </div>
+
     <div class="library-header">
       <h1>My Library</h1>
       <div class="header-actions">
@@ -80,6 +92,30 @@ onMounted(load)
 </template>
 
 <style scoped>
+.addon-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 20px;
+  font-size: 13px;
+}
+.addon-label { color: var(--text-muted); font-weight: 600; }
+.addon-url {
+  background: var(--bg-card);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--accent);
+  word-break: break-all;
+}
+.addon-url:hover { background: var(--accent-glow); }
+.addon-hint { color: var(--text-muted); font-size: 11px; }
+
 .library-header {
   display: flex;
   justify-content: space-between;
