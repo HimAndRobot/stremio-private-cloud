@@ -1,7 +1,8 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { getContent, deleteContent, deleteFile, uploadFile } from '../api/client.js'
+import { getContent, deleteContent, deleteFile } from '../api/client.js'
+import LinkModal from '../components/LinkModal.vue'
 
 const props = defineProps({ imdbId: String })
 const router = useRouter()
@@ -11,10 +12,8 @@ const files = ref([])
 const meta = ref(null)
 const loading = ref(true)
 
-const uploading = ref(false)
-const uploadTarget = ref('')
-const uploadQuality = ref('1080p')
-const uploadProgress = ref('')
+const showModal = ref(false)
+const modalTarget = ref('')
 
 // Group episodes by season from Cinemeta metadata
 const seasons = computed(() => {
@@ -69,29 +68,14 @@ async function removeFile(fileId) {
   files.value = files.value.filter(f => f.id !== fileId)
 }
 
-function triggerUpload(videoId) {
-  uploadTarget.value = videoId
-  document.getElementById('file-input').click()
+function openLink(videoId) {
+  modalTarget.value = videoId
+  showModal.value = true
 }
 
-async function handleFileSelect(e) {
-  const file = e.target.files[0]
-  if (!file) return
-
-  uploading.value = true
-  uploadProgress.value = `Uploading ${file.name}...`
-
-  try {
-    const result = await uploadFile(uploadTarget.value, file, uploadQuality.value)
-    files.value.push(result)
-    uploadProgress.value = ''
-  } catch (err) {
-    alert(`Upload failed: ${err.message}`)
-    uploadProgress.value = ''
-  }
-
-  uploading.value = false
-  e.target.value = ''
+function onLinked(result) {
+  files.value.push(result)
+  showModal.value = false
 }
 
 function formatSize(bytes) {
@@ -107,8 +91,6 @@ onMounted(load)
 
 <template>
   <div class="content-detail">
-    <input id="file-input" type="file" accept="video/*" hidden @change="handleFileSelect" />
-
     <div v-if="loading" class="loading">Loading...</div>
 
     <template v-else-if="content">
@@ -133,42 +115,27 @@ onMounted(load)
         </div>
       </div>
 
-      <!-- Upload progress -->
-      <div v-if="uploadProgress" class="upload-banner">
-        <div class="spinner"></div>
-        {{ uploadProgress }}
-      </div>
-
-      <!-- Quality selector -->
-      <div class="quality-row">
-        <label>Upload quality tag:</label>
-        <select v-model="uploadQuality">
-          <option>480p</option>
-          <option>720p</option>
-          <option>1080p</option>
-          <option>2160p</option>
-        </select>
-      </div>
-
       <!-- Movie: single file -->
       <div v-if="content.type === 'movie'" class="section">
         <div class="section-header">
           <h2>Files</h2>
-          <button class="btn-primary" @click="triggerUpload(content.imdb_id)" :disabled="uploading">
-            + Upload File
-          </button>
+          <button class="btn-primary" @click="openLink(content.imdb_id)">+ Add File</button>
         </div>
         <div v-if="fileMap[content.imdb_id]?.length" class="file-list">
           <div v-for="f in fileMap[content.imdb_id]" :key="f.id" class="file-row">
             <div class="file-icon">&#128196;</div>
             <div class="file-info">
               <div class="file-name">{{ f.file_name }}</div>
-              <div class="file-meta">{{ f.quality || '—' }} &middot; {{ formatSize(f.file_size) }} &middot; {{ f.mime_type }}</div>
+              <div class="file-meta">
+                <span v-if="f.source_type === 'gdrive'" class="source-badge gdrive">GDrive</span>
+                <span v-else class="source-badge local">Local</span>
+                {{ f.quality || '—' }} &middot; {{ formatSize(f.file_size) }}
+              </div>
             </div>
             <button class="btn-danger btn-sm" @click="removeFile(f.id)">Delete</button>
           </div>
         </div>
-        <div v-else class="no-files">No files uploaded yet. Click "Upload File" to add one.</div>
+        <div v-else class="no-files">No files yet. Click "+ Add File" to link one.</div>
       </div>
 
       <!-- Series: seasons / episodes -->
@@ -202,10 +169,9 @@ onMounted(load)
               </div>
               <button
                 class="btn-primary btn-sm"
-                @click="triggerUpload(`${content.imdb_id}:${ep.season}:${ep.episode}`)"
-                :disabled="uploading"
+                @click="openLink(`${content.imdb_id}:${ep.season}:${ep.episode}`)"
               >
-                + Upload
+                + Add File
               </button>
             </div>
 
@@ -219,7 +185,11 @@ onMounted(load)
                 <div class="file-icon">&#128196;</div>
                 <div class="file-info">
                   <div class="file-name">{{ f.file_name }}</div>
-                  <div class="file-meta">{{ f.quality || '—' }} &middot; {{ formatSize(f.file_size) }}</div>
+                  <div class="file-meta">
+                    <span v-if="f.source_type === 'gdrive'" class="source-badge gdrive">GDrive</span>
+                    <span v-else class="source-badge local">Local</span>
+                    {{ f.quality || '—' }} &middot; {{ formatSize(f.file_size) }}
+                  </div>
                 </div>
                 <button class="btn-danger btn-sm" @click="removeFile(f.id)">Delete</button>
               </div>
@@ -234,19 +204,22 @@ onMounted(load)
     </template>
 
     <div v-else class="loading">Content not found.</div>
+
+    <!-- Link Modal -->
+    <LinkModal
+      v-if="showModal"
+      :target-id="modalTarget"
+      @close="showModal = false"
+      @linked="onLinked"
+    />
   </div>
 </template>
 
 <style scoped>
-.hero {
-  margin-bottom: 32px;
-}
+.hero { margin-bottom: 32px; }
 .back-btn { margin-bottom: 20px; }
 
-.hero-inner {
-  display: flex;
-  gap: 32px;
-}
+.hero-inner { display: flex; gap: 32px; }
 .hero-poster {
   width: 200px;
   flex-shrink: 0;
@@ -255,22 +228,14 @@ onMounted(load)
   aspect-ratio: 2/3;
   background: var(--bg-card);
 }
-.hero-poster img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+.hero-poster img { width: 100%; height: 100%; object-fit: cover; }
 .hero-info {
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 8px;
 }
-.hero-info h1 {
-  font-size: 32px;
-  font-weight: 700;
-  margin: 0;
-}
+.hero-info h1 { font-size: 32px; font-weight: 700; margin: 0; }
 .type-badge {
   display: inline-block;
   font-size: 11px;
@@ -291,32 +256,6 @@ onMounted(load)
 .imdb-id { font-family: monospace; color: var(--text-muted); }
 .hero-actions { margin-top: 12px; }
 
-.upload-banner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 20px;
-  background: var(--accent-glow);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
-  margin-bottom: 20px;
-  font-size: 14px;
-  color: var(--accent);
-}
-
-.quality-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-.quality-row select {
-  width: auto;
-  padding: 6px 12px;
-}
-
 .section { margin-bottom: 32px; }
 .section-header {
   display: flex;
@@ -324,10 +263,7 @@ onMounted(load)
   align-items: center;
   margin-bottom: 16px;
 }
-.section-header h2 {
-  font-size: 20px;
-  font-weight: 600;
-}
+.section-header h2 { font-size: 20px; font-weight: 600; }
 
 .season-tabs {
   display: flex;
@@ -347,16 +283,9 @@ onMounted(load)
   font-size: 13px;
 }
 .season-tabs button:hover { color: var(--text-primary); }
-.season-tabs button.active {
-  background: var(--accent);
-  color: white;
-}
+.season-tabs button.active { background: var(--accent); color: white; }
 
-.episode-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+.episode-list { display: flex; flex-direction: column; gap: 8px; }
 
 .episode-card {
   background: var(--bg-secondary);
@@ -367,11 +296,7 @@ onMounted(load)
 }
 .episode-card:hover { border-color: var(--accent); }
 
-.ep-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
+.ep-header { display: flex; align-items: center; gap: 16px; }
 .ep-number {
   font-size: 14px;
   font-weight: 700;
@@ -382,10 +307,7 @@ onMounted(load)
   flex-shrink: 0;
 }
 .ep-info { flex: 1; min-width: 0; }
-.ep-title {
-  font-weight: 600;
-  font-size: 14px;
-}
+.ep-title { font-weight: 600; font-size: 14px; }
 .ep-overview {
   font-size: 12px;
   color: var(--text-muted);
@@ -405,11 +327,7 @@ onMounted(load)
   gap: 6px;
 }
 
-.file-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+.file-list { display: flex; flex-direction: column; gap: 8px; }
 
 .file-row {
   display: flex;
@@ -420,10 +338,7 @@ onMounted(load)
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
-.file-row.compact {
-  padding: 8px 12px;
-  background: var(--bg-card);
-}
+.file-row.compact { padding: 8px 12px; background: var(--bg-card); }
 
 .file-icon { font-size: 20px; flex-shrink: 0; }
 .file-info { flex: 1; min-width: 0; }
@@ -434,11 +349,19 @@ onMounted(load)
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.file-meta {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 2px;
+.file-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+.source-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-right: 4px;
 }
+.source-badge.local { background: #1a3a2a; color: #22c55e; }
+.source-badge.gdrive { background: #1a2a3a; color: #60a5fa; }
 
 .btn-sm { padding: 6px 14px; font-size: 12px; }
 
@@ -456,14 +379,4 @@ onMounted(load)
   padding: 80px 20px;
   color: var(--text-secondary);
 }
-
-.spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--accent);
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 </style>

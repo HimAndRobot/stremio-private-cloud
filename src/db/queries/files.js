@@ -19,11 +19,11 @@ export function getFilesByContentImdb(imdbId) {
 }
 
 // Create a new file entry
-export function createFile({ id, imdb_id, file_path, file_name, file_size, mime_type, quality, source_type }) {
+export function createFile({ id, imdb_id, file_path, file_name, file_size, mime_type, quality, source_type, source_meta }) {
   const db = getDb();
   return db.prepare(
-    'INSERT INTO files (id, imdb_id, file_path, file_name, file_size, mime_type, quality, source_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, imdb_id, file_path, file_name, file_size, mime_type, quality, source_type || 'local');
+    'INSERT INTO files (id, imdb_id, file_path, file_name, file_size, mime_type, quality, source_type, source_meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, imdb_id, file_path, file_name, file_size, mime_type, quality, source_type || 'local', source_meta || null);
 }
 
 // Delete a file entry

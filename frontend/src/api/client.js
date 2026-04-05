@@ -40,7 +40,14 @@ export function deleteFile(fileId) {
   return request(`/files/${fileId}`, { method: 'DELETE' });
 }
 
-export async function uploadFile(imdbId, file, quality) {
+export function linkGdrive(imdbId, driveUrl, quality) {
+  return request('/files/gdrive', {
+    method: 'POST',
+    body: JSON.stringify({ imdb_id: imdbId, drive_url: driveUrl, quality }),
+  });
+}
+
+export async function uploadLocal(imdbId, file, quality) {
   const form = new FormData();
   form.append('video', file);
   form.append('imdb_id', imdbId);

@@ -23,6 +23,7 @@ export function migrate() {
       mime_type   TEXT,
       quality     TEXT,
       source_type TEXT DEFAULT 'local' CHECK(source_type IN ('local', 'gdrive', 'url')),
+      source_meta TEXT,
       created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 

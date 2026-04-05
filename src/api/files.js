@@ -5,6 +5,7 @@ import multer from 'multer';
 import * as fileDb from '../db/queries/files.js';
 import { fileId } from '../utils/id.js';
 import { getMimeType, isVideoFile } from '../utils/mime.js';
+import { parseDriveFileId, probeDriveFile } from '../streaming/gdrive.js';
 import config from '../config.js';
 
 const upload = multer({
@@ -76,6 +77,50 @@ router.post('/link', (req, res) => {
     mime_type: getMimeType(fileName),
     quality: quality || null,
     source_type: 'local',
+  });
+
+  res.status(201).json(fileDb.getFile(id));
+});
+
+// Link a Google Drive shared file
+router.post('/gdrive', async (req, res) => {
+  const { imdb_id, drive_url, quality, file_name } = req.body;
+  if (!imdb_id || !drive_url) {
+    return res.status(400).json({ error: 'imdb_id and drive_url are required' });
+  }
+
+  const driveFileId = parseDriveFileId(drive_url);
+  if (!driveFileId) {
+    return res.status(400).json({ error: 'Could not extract Google Drive file ID from URL' });
+  }
+
+  // Probe the file to verify it's accessible, get size and real filename
+  let fileSize = null;
+  let detectedName = file_name || null;
+  try {
+    const probe = await probeDriveFile(driveFileId);
+    if (!probe.ok) {
+      return res.status(400).json({ error: 'Google Drive file not accessible. Make sure the file is shared as "Anyone with the link".' });
+    }
+    fileSize = probe.fileSize;
+    if (!detectedName && probe.fileName) detectedName = probe.fileName;
+  } catch {
+    // Probe failed, continue anyway — streaming might still work
+  }
+
+  if (!detectedName) detectedName = `gdrive_${driveFileId}.mp4`;
+
+  const id = fileId();
+  fileDb.createFile({
+    id,
+    imdb_id,
+    file_path: drive_url,
+    file_name: detectedName,
+    file_size: fileSize,
+    mime_type: getMimeType(detectedName),
+    quality: quality || null,
+    source_type: 'gdrive',
+    source_meta: JSON.stringify({ driveFileId }),
   });
 
   res.status(201).json(fileDb.getFile(id));
