@@ -83,7 +83,8 @@ const server = createServer({ cert, key }, app);
 
 // API endpoint so frontend can build the correct addon URL
 app.get('/api/server-info', (req, res) => {
-  const host = req.headers.host;
+  let host = req.headers.host || '';
+  if (!host.includes(':')) host = `${host}:${config.port}`;
   res.json({
     addonUrl: `https://${host}/manifest.json`,
     adminUrl: `https://${host}/admin`,
