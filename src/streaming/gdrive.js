@@ -1,56 +1,54 @@
-// Google Drive download URLs (tried in order)
-function getDriveUrls(fileId) {
-  return [
-    `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t`,
-    `https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`,
-  ];
+let cachedUuids = {};
+
+// Get a fresh download UUID for a file (required by Google Drive virus scan bypass)
+async function getDownloadUuid(fileId) {
+  const pageUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+  const page = await fetch(pageUrl, { redirect: 'follow' });
+  const html = await page.text();
+  const match = html.match(/name="uuid" value="([^"]+)"/);
+  return match ? match[1] : null;
 }
 
-// Resolve the actual download URL by following redirects and checking for HTML confirmation pages
-async function resolveDownloadUrl(fileId) {
-  const urls = getDriveUrls(fileId);
-
-  for (const url of urls) {
-    try {
-      const probe = await fetch(url, {
-        method: 'GET',
-        redirect: 'follow',
-        headers: { Range: 'bytes=0-0' },
-      });
-
-      const ct = probe.headers.get('content-type') || '';
-
-      if (ct.includes('text/html')) {
-        probe.body?.cancel();
-        continue;
-      }
-
-      probe.body?.cancel();
-      return { url: probe.url, ok: true };
-    } catch {
-      continue;
-    }
-  }
-
-  return { url: urls[0], ok: false };
+// Build the download URL with uuid
+function buildDownloadUrl(fileId, uuid) {
+  return `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t&uuid=${uuid}`;
 }
 
-// Try to fetch from Google Drive, attempting all URL variants
-async function fetchDrive(driveFileId, headers) {
-  const urls = getDriveUrls(driveFileId);
-
-  for (const url of urls) {
-    const driveRes = await fetch(url, { headers, redirect: 'follow' });
-    const ct = driveRes.headers.get('content-type') || '';
-
-    if ((driveRes.ok || driveRes.status === 206) && !ct.includes('text/html')) {
-      return driveRes;
+// Fetch from Google Drive with uuid-based confirmation
+async function fetchDrive(fileId, headers = {}) {
+  // Try cached uuid first
+  if (cachedUuids[fileId]) {
+    const url = buildDownloadUrl(fileId, cachedUuids[fileId]);
+    const res = await fetch(url, { headers, redirect: 'follow' });
+    const ct = res.headers.get('content-type') || '';
+    if ((res.ok || res.status === 206) && !ct.includes('text/html')) {
+      return res;
     }
-
-    console.log(`[GDrive] ${url} returned ${driveRes.status} (${ct.split(';')[0]})`);
-    driveRes.body?.cancel();
+    res.body?.cancel();
+    delete cachedUuids[fileId];
   }
 
+  // Get fresh uuid
+  const uuid = await getDownloadUuid(fileId);
+  if (!uuid) {
+    console.log('[GDrive] Could not extract uuid from confirmation page');
+    return null;
+  }
+
+  cachedUuids[fileId] = uuid;
+  const url = buildDownloadUrl(fileId, uuid);
+  console.log(`[GDrive] Fetching: ${url}`);
+  console.log(`[GDrive] Headers:`, JSON.stringify(headers));
+  const res = await fetch(url, { headers, redirect: 'follow' });
+  const ct = res.headers.get('content-type') || '';
+
+  if ((res.ok || res.status === 206) && !ct.includes('text/html')) {
+    console.log(`[GDrive] OK: ${res.status}`);
+    return res;
+  }
+
+  console.log(`[GDrive] Failed: ${res.status} (${ct.split(';')[0]}) url=${res.url}`);
+  res.body?.cancel();
   return null;
 }
 
@@ -64,16 +62,28 @@ export async function streamGdrive(req, res, file) {
   }
 
   try {
+    const CHUNK = 10 * 1024 * 1024;
+    const total = file.file_size || 0;
     const headers = {};
-    if (req.headers.range) {
-      headers['Range'] = req.headers.range;
+    const reqRange = req.headers.range || '';
+
+    let start = 0;
+    let end = CHUNK - 1;
+
+    if (reqRange) {
+      const parts = reqRange.replace('bytes=', '').split('-');
+      start = parseInt(parts[0], 10) || 0;
+      end = parts[1] ? parseInt(parts[1], 10) : start + CHUNK - 1;
     }
+
+    if (total && end >= total) end = total - 1;
+    headers['Range'] = `bytes=${start}-${end}`;
 
     const driveRes = await fetchDrive(driveFileId, headers);
 
     if (!driveRes) {
       return res.status(403).json({
-        error: 'Google Drive blocked the request. The file may have too many downloads or the sharing settings changed.',
+        error: 'Google Drive blocked the request. Check that the file is shared as "Anyone with the link".',
       });
     }
 
@@ -100,41 +110,32 @@ export async function streamGdrive(req, res, file) {
     }
     pump();
   } catch (err) {
+    console.error('[GDrive] Error:', err.message);
     res.status(502).json({ error: `Google Drive proxy failed: ${err.message}` });
   }
 }
 
 // Probe a Google Drive file to get its real size and filename
 export async function probeDriveFile(fileId) {
-  const { url: downloadUrl } = await resolveDownloadUrl(fileId);
+  const res = await fetchDrive(fileId, { Range: 'bytes=0-0' });
 
-  const probe = await fetch(downloadUrl, {
-    method: 'GET',
-    redirect: 'follow',
-    headers: { Range: 'bytes=0-0' },
-  });
-
-  const ct = probe.headers.get('content-type') || '';
-  if (ct.includes('text/html')) {
-    probe.body?.cancel();
-    return { ok: false, error: 'File not accessible or requires confirmation' };
-  }
+  if (!res) return { ok: false, error: 'File not accessible' };
 
   let fileSize = null;
-  const cr = probe.headers.get('content-range');
+  const cr = res.headers.get('content-range');
   if (cr) {
     const total = cr.split('/')[1];
     if (total && total !== '*') fileSize = parseInt(total, 10);
   }
 
   let fileName = null;
-  const cd = probe.headers.get('content-disposition');
+  const cd = res.headers.get('content-disposition');
   if (cd) {
     const match = cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
     if (match) fileName = decodeURIComponent(match[1].replace(/"/g, ''));
   }
 
-  probe.body?.cancel();
+  res.body?.cancel();
   return { ok: true, fileSize, fileName };
 }
 
