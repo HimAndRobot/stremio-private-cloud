@@ -8,11 +8,27 @@ const items = ref([])
 const filter = ref('all')
 const loading = ref(true)
 const addonUrl = ref('')
+const copied = ref(false)
 
 const filtered = computed(() => {
   if (filter.value === 'all') return items.value
   return items.value.filter(i => i.type === filter.value)
 })
+
+function copyUrl() {
+  try {
+    navigator.clipboard.writeText(addonUrl.value)
+  } catch {
+    const el = document.createElement('textarea')
+    el.value = addonUrl.value
+    document.body.appendChild(el)
+    el.select()
+    document.execCommand('copy')
+    document.body.removeChild(el)
+  }
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 2000)
+}
 
 async function load() {
   loading.value = true
@@ -37,9 +53,14 @@ onMounted(load)
 <template>
   <div class="library">
     <div v-if="addonUrl" class="addon-bar">
-      <span class="addon-label">Addon URL:</span>
-      <code class="addon-url" @click="navigator.clipboard.writeText(addonUrl)">{{ addonUrl }}</code>
-      <span class="addon-hint">click to copy</span>
+      <div class="addon-left">
+        <span class="addon-label">Addon URL</span>
+        <code class="addon-url">{{ addonUrl }}</code>
+      </div>
+      <div class="addon-actions">
+        <button class="btn-copy" @click="copyUrl">{{ copied ? 'Copied!' : 'Copy' }}</button>
+        <a :href="'stremio://' + addonUrl.replace('https://','')" class="btn-install">Install in Stremio</a>
+      </div>
     </div>
 
     <div class="library-header">
@@ -95,26 +116,48 @@ onMounted(load)
 .addon-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
+  justify-content: space-between;
+  padding: 14px 20px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  margin-bottom: 20px;
-  font-size: 13px;
+  border-radius: var(--radius);
+  margin-bottom: 24px;
 }
-.addon-label { color: var(--text-muted); font-weight: 600; }
+.addon-left { display: flex; flex-direction: column; gap: 4px; }
+.addon-label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; }
 .addon-url {
-  background: var(--bg-card);
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 12px;
-  cursor: pointer;
+  font-size: 13px;
   color: var(--accent);
   word-break: break-all;
+  background: none;
+  padding: 0;
 }
-.addon-url:hover { background: var(--accent-glow); }
-.addon-hint { color: var(--text-muted); font-size: 11px; }
+.addon-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.btn-copy {
+  padding: 8px 16px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-copy:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-install {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: white;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+.btn-install:hover { background: var(--accent-hover); color: white; }
 
 .library-header {
   display: flex;

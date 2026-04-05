@@ -92,13 +92,7 @@ app.get('/api/server-info', (req, res) => {
 
 server.listen(config.port, config.host, () => {
   console.log('');
-  console.log('  Stremio Private Cloud is running on port ' + config.port);
-  console.log('');
-  if (lanIp !== '127.0.0.1') {
-    console.log(`  Admin UI:     ${baseUrl}/admin`);
-    console.log(`  Addon URL:    ${baseUrl}/manifest.json`);
-  } else {
-    console.log('  Open the Admin UI from your browser to see the correct URLs.');
-  }
+  console.log('  Stremio Private Cloud is running!');
+  console.log(`  Admin: ${baseUrl}/admin`);
   console.log('');
 });
