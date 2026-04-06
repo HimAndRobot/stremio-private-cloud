@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { linkGdrive, linkMega, linkTelegram } from '../api/client.js'
+import { linkGdrive, linkMega, linkTelegram, linkYoutube } from '../api/client.js'
 
 const props = defineProps({
   imdbId: String,
@@ -56,6 +56,7 @@ async function doImport() {
 
   const linkFn = source.value === 'gdrive' ? linkGdrive
     : source.value === 'mega' ? linkMega
+    : source.value === 'youtube' ? linkYoutube
     : linkTelegram
 
   const results = []
@@ -101,6 +102,10 @@ async function doImport() {
           <button class="source-card" @click="selectSource('mega')">
             <span class="source-icon">&#9889;</span>
             <span class="source-label">MEGA</span>
+          </button>
+          <button class="source-card" @click="selectSource('youtube')">
+            <span class="source-icon">&#9654;</span>
+            <span class="source-label">YouTube</span>
           </button>
           <button class="source-card" @click="selectSource('telegram')">
             <span class="source-icon">&#9992;</span>

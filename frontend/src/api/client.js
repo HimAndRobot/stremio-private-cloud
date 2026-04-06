@@ -151,6 +151,13 @@ export function linkTelegram(imdbId, telegramUrl, quality) {
   });
 }
 
+export function linkYoutube(imdbId, youtubeUrl, quality) {
+  return request('/files/youtube', {
+    method: 'POST',
+    body: JSON.stringify({ imdb_id: imdbId, youtube_url: youtubeUrl, quality }),
+  });
+}
+
 export function linkLocal(imdbId, filePath, quality) {
   return request('/files/link', {
     method: 'POST',

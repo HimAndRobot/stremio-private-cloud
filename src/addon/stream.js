@@ -32,6 +32,18 @@ export function streamHandler(args) {
   const seriesImdb = isSeries ? videoId.split(':')[0] : null;
 
   const streams = files.map((file) => {
+    if (file.source_type === 'youtube') {
+      const meta = JSON.parse(file.source_meta || '{}');
+      return {
+        ytId: meta.youtubeId,
+        name: 'Private Cloud',
+        description: [file.quality, file.file_name].filter(Boolean).join(' - '),
+        behaviorHints: {
+          bingeGroup: seriesImdb ? `spc_${seriesImdb}` : undefined,
+        },
+      };
+    }
+
     const isWebReady = file.source_type !== 'telegram' && file.mime_type === 'video/mp4' && _baseUrl.startsWith('https');
 
     return {

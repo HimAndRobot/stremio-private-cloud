@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { linkGdrive, linkMega, linkTelegram, uploadLocal, linkLocal, getIntegrations } from '../api/client.js'
+import { linkGdrive, linkMega, linkTelegram, linkYoutube, uploadLocal, linkLocal, getIntegrations } from '../api/client.js'
 
 const props = defineProps({ targetId: String })
 const emit = defineEmits(['close', 'linked'])
@@ -33,6 +33,9 @@ const megaUrl = ref('')
 // Telegram
 const telegramUrl = ref('')
 
+// YouTube
+const youtubeUrl = ref('')
+
 // Upload file (from browser)
 const selectedFile = ref(null)
 const fileInputRef = ref(null)
@@ -44,6 +47,7 @@ const canSubmit = computed(() => {
   if (source.value === 'gdrive') return driveUrl.value.trim().length > 0
   if (source.value === 'mega') return megaUrl.value.trim().length > 0
   if (source.value === 'telegram') return telegramUrl.value.trim().length > 0
+  if (source.value === 'youtube') return youtubeUrl.value.trim().length > 0
   if (source.value === 'upload') return selectedFile.value !== null
   if (source.value === 'link') return linkPath.value.trim().length > 0
   return false
@@ -99,6 +103,8 @@ async function submit() {
       result = await linkMega(props.targetId, megaUrl.value, quality.value)
     } else if (source.value === 'telegram') {
       result = await linkTelegram(props.targetId, telegramUrl.value, quality.value)
+    } else if (source.value === 'youtube') {
+      result = await linkYoutube(props.targetId, youtubeUrl.value, quality.value)
     } else if (source.value === 'link') {
       result = await linkLocal(props.targetId, linkPath.value, quality.value)
     } else {
@@ -120,7 +126,7 @@ async function submit() {
         <div class="modal-title-row">
           <button v-if="step === 'form'" class="back-btn" @click="goBack">&larr;</button>
           <h3>
-            {{ step === 'choose' ? 'Add File' : source === 'gdrive' ? 'Google Drive' : source === 'mega' ? 'MEGA' : source === 'telegram' ? 'Telegram' : source === 'link' ? 'Link File' : 'Upload File' }}
+            {{ step === 'choose' ? 'Add File' : source === 'gdrive' ? 'Google Drive' : source === 'mega' ? 'MEGA' : source === 'telegram' ? 'Telegram' : source === 'youtube' ? 'YouTube' : source === 'link' ? 'Link File' : 'Upload File' }}
           </h3>
         </div>
         <button class="modal-close" @click="emit('close')">&times;</button>
@@ -149,6 +155,11 @@ async function submit() {
             <div class="source-icon">&#9889;</div>
             <div class="source-label">MEGA</div>
             <div class="source-desc">Link a shared file from MEGA.nz</div>
+          </button>
+          <button class="source-card" @click="selectSource('youtube')">
+            <div class="source-icon">&#9654;</div>
+            <div class="source-label">YouTube</div>
+            <div class="source-desc">Link a YouTube video</div>
           </button>
           <button class="source-card" :class="{ 'needs-setup': !telegramLoggedIn }" @click="selectSource('telegram')">
             <div class="source-icon">&#9992;</div>
@@ -198,6 +209,20 @@ async function submit() {
             <input
               v-model="telegramUrl"
               placeholder="https://t.me/c/1234567890/123"
+              autofocus
+              @keydown.enter="canSubmit && submit()"
+            />
+          </div>
+        </template>
+
+        <!-- YouTube form -->
+        <template v-if="source === 'youtube'">
+          <p class="modal-hint">Paste a YouTube video link.</p>
+          <div class="form-group">
+            <label>YouTube URL</label>
+            <input
+              v-model="youtubeUrl"
+              placeholder="https://www.youtube.com/watch?v=..."
               autofocus
               @keydown.enter="canSubmit && submit()"
             />

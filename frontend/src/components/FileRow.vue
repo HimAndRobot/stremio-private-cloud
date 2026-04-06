@@ -51,6 +51,7 @@ function formatSize(bytes) {
         <span v-if="file.source_type === 'gdrive'" class="source-badge gdrive">GDrive</span>
         <span v-else-if="file.source_type === 'mega'" class="source-badge mega">MEGA</span>
         <span v-else-if="file.source_type === 'telegram'" class="source-badge telegram">Telegram</span>
+        <span v-else-if="file.source_type === 'youtube'" class="source-badge youtube">YouTube</span>
         <span v-else-if="file.source_type === 'upload'" class="source-badge upload">Storage</span>
         <span v-else class="source-badge local">Local</span>
         {{ file.quality || '—' }} &middot; {{ formatSize(file.file_size) }}
@@ -93,6 +94,7 @@ function formatSize(bytes) {
 .source-badge.gdrive { background: #1a2a3a; color: #60a5fa; }
 .source-badge.mega { background: #3a1a1a; color: #f87171; }
 .source-badge.telegram { background: #1a2a3a; color: #38bdf8; }
+.source-badge.youtube { background: #3a1a1a; color: #ef4444; }
 .source-badge.upload { background: #2a1a3a; color: #c084fc; }
 
 .file-actions { display: flex; gap: 6px; flex-shrink: 0; }

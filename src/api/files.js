@@ -211,6 +211,48 @@ router.post('/telegram', async (req, res) => {
   res.status(201).json(fileDb.getFile(id));
 });
 
+// Link a YouTube video
+router.post('/youtube', (req, res) => {
+  const { imdb_id, youtube_url, quality } = req.body;
+  if (!imdb_id || !youtube_url) {
+    return res.status(400).json({ error: 'imdb_id and youtube_url are required' });
+  }
+
+  const youtubeId = parseYoutubeId(youtube_url);
+  if (!youtubeId) {
+    return res.status(400).json({ error: 'Could not extract YouTube video ID from URL' });
+  }
+
+  const id = fileId();
+  fileDb.createFile({
+    id,
+    imdb_id,
+    file_path: youtube_url,
+    file_name: `YouTube - ${youtubeId}`,
+    file_size: null,
+    mime_type: 'video/mp4',
+    quality: quality || null,
+    source_type: 'youtube',
+    source_meta: JSON.stringify({ youtubeId }),
+  });
+
+  res.status(201).json(fileDb.getFile(id));
+});
+
+// Extract YouTube video ID from various URL formats
+function parseYoutubeId(url) {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([a-zA-Z0-9_-]{11})/,
+    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  if (/^[a-zA-Z0-9_-]{11}$/.test(url)) return url;
+  return null;
+}
+
 // Get files for an IMDB ID
 router.get('/by-imdb/:imdbId', (req, res) => {
   res.json(fileDb.getFilesByContentImdb(req.params.imdbId));
