@@ -15,7 +15,32 @@ router.get('/search', async (req, res) => {
     searchCinemeta(q, 'series'),
   ]);
 
-  res.json([...movies, ...series]);
+  const all = [...movies, ...series];
+  const lower = q.toLowerCase();
+
+  function score(name) {
+    const n = name.toLowerCase();
+    if (n === lower) return 100;
+    if (n.startsWith(lower)) return 90;
+    if (n.includes(lower)) return 80;
+
+    const qWords = lower.split(/\s+/);
+    const nWords = n.split(/\s+/);
+    let matched = 0;
+    for (const w of qWords) {
+      if (nWords.some(nw => nw.includes(w))) matched++;
+    }
+    const wordScore = (matched / qWords.length) * 60;
+
+    const lenDiff = Math.abs(n.length - lower.length);
+    const lenPenalty = Math.min(lenDiff, 20);
+
+    return wordScore - lenPenalty;
+  }
+
+  all.sort((a, b) => score(b.name) - score(a.name));
+
+  res.json(all);
 });
 
 // List library content

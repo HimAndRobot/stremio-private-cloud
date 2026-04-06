@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { searchCinemeta, addContent } from '../api/client.js'
 
@@ -10,7 +10,16 @@ const query = ref('')
 const results = ref([])
 const searching = ref(false)
 const adding = ref(null)
+const filterType = ref('all')
+const filterYear = ref('')
 let debounce = null
+
+const filtered = computed(() => {
+  let r = results.value
+  if (filterType.value !== 'all') r = r.filter(i => i.type === filterType.value)
+  if (filterYear.value) r = r.filter(i => i.year && i.year.includes(filterYear.value))
+  return r
+})
 
 function onSearch() {
   clearTimeout(debounce)
@@ -57,8 +66,23 @@ async function add(item) {
       <div v-if="searching" class="search-hint">Searching...</div>
     </div>
 
-    <div v-if="results.length" class="search-results">
-      <div v-for="item in results" :key="item.imdb_id" class="result-card">
+    <div v-if="results.length" class="filters-bar">
+      <div class="filter-type">
+        <button :class="{ active: filterType === 'all' }" @click="filterType = 'all'">All</button>
+        <button :class="{ active: filterType === 'movie' }" @click="filterType = 'movie'">Movies</button>
+        <button :class="{ active: filterType === 'series' }" @click="filterType = 'series'">Series</button>
+      </div>
+      <input
+        v-model="filterYear"
+        class="filter-year"
+        placeholder="Year"
+        maxlength="4"
+      />
+      <span class="filter-count">{{ filtered.length }} results</span>
+    </div>
+
+    <div v-if="filtered.length" class="search-results">
+      <div v-for="item in filtered" :key="item.imdb_id" class="result-card">
         <div class="result-poster">
           <img v-if="item.poster" :src="item.poster" :alt="item.name" />
           <div v-else class="result-placeholder">{{ item.name[0] }}</div>
@@ -81,7 +105,11 @@ async function add(item) {
       </div>
     </div>
 
-    <div v-else-if="query && !searching" class="empty-state">
+    <div v-else-if="results.length && !filtered.length" class="empty-state">
+      <p>No results match your filters.</p>
+    </div>
+
+    <div v-else-if="query && !searching && !results.length" class="empty-state">
       <p>No results found. Try a different search term.</p>
     </div>
   </div>
@@ -119,6 +147,48 @@ async function add(item) {
   transform: translateY(-50%);
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.filters-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.filter-type {
+  display: flex;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.filter-type button {
+  padding: 6px 14px;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+.filter-type button:hover { color: var(--text-primary); }
+.filter-type button.active { background: var(--accent); color: white; }
+.filter-year {
+  width: 70px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  outline: none;
+  text-align: center;
+}
+.filter-year:focus { border-color: var(--accent); }
+.filter-year::placeholder { color: var(--text-muted); }
+.filter-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: auto;
 }
 
 .search-results {
