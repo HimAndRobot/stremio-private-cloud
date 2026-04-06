@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { getContent, deleteContent } from '../api/client.js'
 import LinkModal from '../components/LinkModal.vue'
 import FileRow from '../components/FileRow.vue'
+import BulkImportModal from '../components/BulkImportModal.vue'
 
 const props = defineProps({ imdbId: String })
 const router = useRouter()
@@ -15,6 +16,7 @@ const loading = ref(true)
 
 const showModal = ref(false)
 const modalTarget = ref('')
+const showBulkImport = ref(false)
 
 // Group episodes by season from Cinemeta metadata
 const seasons = computed(() => {
@@ -76,6 +78,11 @@ function onFileUpdated(updated) {
 function openLink(videoId) {
   modalTarget.value = videoId
   showModal.value = true
+}
+
+function onBulkImported(results) {
+  files.value.push(...results)
+  showBulkImport.value = false
 }
 
 function onLinked(result) {
@@ -148,6 +155,7 @@ onMounted(load)
       <div v-if="content.type === 'series'" class="section">
         <div class="section-header">
           <h2>Episodes</h2>
+          <button class="btn-primary" @click="showBulkImport = true">Bulk Import</button>
         </div>
 
         <div v-if="seasonNumbers.length" class="season-tabs">
@@ -209,6 +217,15 @@ onMounted(load)
       :target-id="modalTarget"
       @close="showModal = false"
       @linked="onLinked"
+    />
+
+    <BulkImportModal
+      v-if="showBulkImport && content?.type === 'series'"
+      :imdb-id="content.imdb_id"
+      :season="activeSeason"
+      :episodes="seasons[activeSeason]"
+      @close="showBulkImport = false"
+      @imported="onBulkImported"
     />
   </div>
 </template>
