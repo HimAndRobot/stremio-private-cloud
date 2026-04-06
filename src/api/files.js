@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { resolve, basename } from 'path';
-import { renameSync, statSync } from 'fs';
+import { renameSync, statSync, unlinkSync } from 'fs';
 import multer from 'multer';
 import * as fileDb from '../db/queries/files.js';
 import { fileId } from '../utils/id.js';
@@ -44,7 +44,7 @@ router.post('/upload', upload.single('video'), (req, res) => {
     file_size: req.file.size,
     mime_type: getMimeType(originalName),
     quality: quality || null,
-    source_type: 'local',
+    source_type: 'upload',
   });
 
   res.status(201).json(fileDb.getFile(id));
@@ -228,10 +228,14 @@ router.put('/:id', (req, res) => {
   res.json(fileDb.getFile(req.params.id));
 });
 
-// Delete a file
+// Delete a file (also removes from disk if uploaded)
 router.delete('/:id', (req, res) => {
   const file = fileDb.getFile(req.params.id);
   if (!file) return res.status(404).json({ error: 'Not found' });
+
+  if (file.source_type === 'upload') {
+    try { unlinkSync(file.file_path); } catch { /* file may not exist */ }
+  }
 
   fileDb.deleteFile(req.params.id);
   res.json({ deleted: true });

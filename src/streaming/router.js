@@ -12,7 +12,7 @@ router.get('/video/:fileId', (req, res) => {
   const file = getFile(req.params.fileId);
   if (!file) return res.status(404).json({ error: 'File not found' });
 
-  if (file.source_type === 'local') {
+  if (file.source_type === 'local' || file.source_type === 'upload') {
     return streamLocal(req, res, file);
   }
 

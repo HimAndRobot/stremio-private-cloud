@@ -51,13 +51,14 @@ function formatSize(bytes) {
         <span v-if="file.source_type === 'gdrive'" class="source-badge gdrive">GDrive</span>
         <span v-else-if="file.source_type === 'mega'" class="source-badge mega">MEGA</span>
         <span v-else-if="file.source_type === 'telegram'" class="source-badge telegram">Telegram</span>
+        <span v-else-if="file.source_type === 'upload'" class="source-badge upload">Storage</span>
         <span v-else class="source-badge local">Local</span>
         {{ file.quality || '—' }} &middot; {{ formatSize(file.file_size) }}
       </div>
     </div>
     <div class="file-actions">
       <button class="btn-ext btn-sm" @click="startEdit" title="Rename">&#9998;</button>
-      <a v-if="file.source_type !== 'local'" :href="file.file_path" target="_blank" class="btn-ext btn-sm" title="Open source link">&#8599;</a>
+      <a v-if="file.source_type !== 'local' && file.source_type !== 'upload'" :href="file.file_path" target="_blank" class="btn-ext btn-sm" title="Open source link">&#8599;</a>
       <button class="btn-danger btn-sm" @click="remove">Delete</button>
     </div>
   </div>
@@ -92,6 +93,7 @@ function formatSize(bytes) {
 .source-badge.gdrive { background: #1a2a3a; color: #60a5fa; }
 .source-badge.mega { background: #3a1a1a; color: #f87171; }
 .source-badge.telegram { background: #1a2a3a; color: #38bdf8; }
+.source-badge.upload { background: #2a1a3a; color: #c084fc; }
 
 .file-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .btn-ext {

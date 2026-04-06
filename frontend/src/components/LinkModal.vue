@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { linkGdrive, linkMega, linkTelegram, uploadLocal, getIntegrations } from '../api/client.js'
+import { linkGdrive, linkMega, linkTelegram, uploadLocal, linkLocal, getIntegrations } from '../api/client.js'
 
 const props = defineProps({ targetId: String })
 const emit = defineEmits(['close', 'linked'])
@@ -33,15 +33,19 @@ const megaUrl = ref('')
 // Telegram
 const telegramUrl = ref('')
 
-// Local file
+// Upload file (from browser)
 const selectedFile = ref(null)
 const fileInputRef = ref(null)
+
+// Link file (server path)
+const linkPath = ref('')
 
 const canSubmit = computed(() => {
   if (source.value === 'gdrive') return driveUrl.value.trim().length > 0
   if (source.value === 'mega') return megaUrl.value.trim().length > 0
   if (source.value === 'telegram') return telegramUrl.value.trim().length > 0
-  if (source.value === 'local') return selectedFile.value !== null
+  if (source.value === 'upload') return selectedFile.value !== null
+  if (source.value === 'link') return linkPath.value.trim().length > 0
   return false
 })
 
@@ -54,7 +58,7 @@ function selectSource(s) {
   source.value = s
   step.value = 'form'
   error.value = ''
-  if (s === 'local') {
+  if (s === 'upload') {
     setTimeout(() => fileInputRef.value?.click(), 100)
   }
 }
@@ -95,6 +99,8 @@ async function submit() {
       result = await linkMega(props.targetId, megaUrl.value, quality.value)
     } else if (source.value === 'telegram') {
       result = await linkTelegram(props.targetId, telegramUrl.value, quality.value)
+    } else if (source.value === 'link') {
+      result = await linkLocal(props.targetId, linkPath.value, quality.value)
     } else {
       result = await uploadLocal(props.targetId, selectedFile.value, quality.value)
     }
@@ -114,7 +120,7 @@ async function submit() {
         <div class="modal-title-row">
           <button v-if="step === 'form'" class="back-btn" @click="goBack">&larr;</button>
           <h3>
-            {{ step === 'choose' ? 'Add File' : source === 'gdrive' ? 'Google Drive' : source === 'mega' ? 'MEGA' : source === 'telegram' ? 'Telegram' : 'Local File' }}
+            {{ step === 'choose' ? 'Add File' : source === 'gdrive' ? 'Google Drive' : source === 'mega' ? 'MEGA' : source === 'telegram' ? 'Telegram' : source === 'link' ? 'Link File' : 'Upload File' }}
           </h3>
         </div>
         <button class="modal-close" @click="emit('close')">&times;</button>
@@ -124,10 +130,15 @@ async function submit() {
       <div v-if="step === 'choose'" class="modal-body">
         <p class="modal-hint">How do you want to add this file?</p>
         <div class="source-options">
-          <button class="source-card" @click="selectSource('local')">
-            <div class="source-icon">&#128193;</div>
-            <div class="source-label">Local File</div>
-            <div class="source-desc">Select a video file from your computer</div>
+          <button class="source-card" @click="selectSource('upload')">
+            <div class="source-icon">&#11014;</div>
+            <div class="source-label">Upload File</div>
+            <div class="source-desc">Upload a video file to the server storage</div>
+          </button>
+          <button class="source-card" @click="selectSource('link')">
+            <div class="source-icon">&#128279;</div>
+            <div class="source-label">Link File</div>
+            <div class="source-desc">Link a file path on the server</div>
           </button>
           <button class="source-card" @click="selectSource('gdrive')">
             <div class="source-icon">&#9729;</div>
@@ -193,8 +204,8 @@ async function submit() {
           </div>
         </template>
 
-        <!-- Local file form -->
-        <template v-if="source === 'local'">
+        <!-- Upload file form -->
+        <template v-if="source === 'upload'">
           <input
             ref="fileInputRef"
             type="file"
@@ -212,8 +223,22 @@ async function submit() {
             <button class="btn-ghost btn-sm" @click="browseFile">Change</button>
           </div>
           <div v-else class="drop-zone" @click="browseFile">
-            <div class="drop-icon">&#128193;</div>
+            <div class="drop-icon">&#11014;</div>
             <div class="drop-text">Click to select a video file</div>
+          </div>
+        </template>
+
+        <!-- Link file form -->
+        <template v-if="source === 'link'">
+          <p class="modal-hint">Enter the absolute path to a video file on the server.</p>
+          <div class="form-group">
+            <label>File Path</label>
+            <input
+              v-model="linkPath"
+              placeholder="/mnt/media/movies/inception.mkv"
+              autofocus
+              @keydown.enter="canSubmit && submit()"
+            />
           </div>
         </template>
 
@@ -258,7 +283,7 @@ async function submit() {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  width: 520px;
+  width: 560px;
   max-width: 90vw;
   box-shadow: var(--shadow);
 }
@@ -315,7 +340,7 @@ async function submit() {
   line-height: 1.5;
 }
 
-.source-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.source-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .source-card {
   flex: 1;
   display: flex;

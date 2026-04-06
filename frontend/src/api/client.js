@@ -151,6 +151,13 @@ export function linkTelegram(imdbId, telegramUrl, quality) {
   });
 }
 
+export function linkLocal(imdbId, filePath, quality) {
+  return request('/files/link', {
+    method: 'POST',
+    body: JSON.stringify({ imdb_id: imdbId, file_path: filePath, quality }),
+  });
+}
+
 export async function uploadLocal(imdbId, file, quality) {
   const form = new FormData();
   form.append('video', file);
