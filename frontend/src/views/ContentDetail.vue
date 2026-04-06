@@ -1,12 +1,14 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { getContent, deleteContent } from '../api/client.js'
 import LinkModal from '../components/LinkModal.vue'
 import FileRow from '../components/FileRow.vue'
 import BulkImportModal from '../components/BulkImportModal.vue'
 
 const props = defineProps({ imdbId: String })
+const route = useRoute()
+const fromFolder = route.query.folder || null
 const router = useRouter()
 
 const content = ref(null)
@@ -63,7 +65,7 @@ async function load() {
 async function remove() {
   if (!confirm(`Remove "${content.value.name}" and all files from your library?`)) return
   await deleteContent(props.imdbId)
-  router.push('/')
+  router.push({ path: '/', query: fromFolder ? { folder: fromFolder } : {} })
 }
 
 function onFileDeleted(fileId) {
@@ -108,7 +110,7 @@ onMounted(load)
     <template v-else-if="content">
       <!-- Hero -->
       <div class="hero">
-        <button class="btn-ghost back-btn" @click="router.push('/')">&#8592; Library</button>
+        <button class="btn-ghost back-btn" @click="router.push({ path: '/', query: fromFolder ? { folder: fromFolder } : {} })">&#8592; Back</button>
         <div class="hero-inner">
           <div class="hero-poster">
             <img v-if="content.poster" :src="content.poster" :alt="content.name" />
@@ -155,18 +157,20 @@ onMounted(load)
       <div v-if="content.type === 'series'" class="section">
         <div class="section-header">
           <h2>Episodes</h2>
-          <button class="btn-primary" @click="showBulkImport = true">Bulk Import</button>
         </div>
 
-        <div v-if="seasonNumbers.length" class="season-tabs">
-          <button
-            v-for="s in seasonNumbers"
-            :key="s"
-            :class="{ active: activeSeason === s }"
-            @click="activeSeason = s"
-          >
-            Season {{ s }}
-          </button>
+        <div v-if="seasonNumbers.length" class="season-bar">
+          <div class="season-tabs">
+            <button
+              v-for="s in seasonNumbers"
+              :key="s"
+              :class="{ active: activeSeason === s }"
+              @click="activeSeason = s"
+            >
+              Season {{ s }}
+            </button>
+          </div>
+          <button class="btn-bulk" @click="showBulkImport = true">&#8615; Bulk Import</button>
         </div>
 
         <div v-if="seasons[activeSeason]" class="episode-list">
@@ -304,10 +308,29 @@ onMounted(load)
 }
 .section-header h2 { font-size: 20px; font-weight: 600; }
 
+.season-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 12px;
+}
+.btn-bulk {
+  padding: 6px 14px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.btn-bulk:hover { background: var(--accent-glow); color: var(--accent); border-color: var(--accent); }
 .season-tabs {
   display: flex;
   gap: 4px;
-  margin-bottom: 16px;
   background: var(--bg-secondary);
   border-radius: var(--radius-sm);
   padding: 4px;

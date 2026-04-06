@@ -522,7 +522,7 @@ watch(() => route.query.folder, () => {
         :key="item.imdb_id"
         class="poster-card"
         :class="{ 'ghost': isDragging(item, 'content') }"
-        @mousedown="startCardAction($event, item, 'content', () => router.push(`/content/${item.imdb_id}`))"
+        @mousedown="startCardAction($event, item, 'content', () => router.push({ path: `/content/${item.imdb_id}`, query: currentFolderId ? { folder: currentFolderId } : {} }))"
       >
         <div class="poster-image">
           <img v-if="item.poster" :src="item.poster" :alt="item.name" />
