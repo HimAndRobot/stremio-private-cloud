@@ -93,10 +93,10 @@ app.get('/api/server-info', (req, res) => {
 server.listen(config.port, config.host, () => {
   console.log('');
   console.log('  Stremio Private Cloud is running!');
-  console.log(`  Admin: https://<IP>.local-ip.medicmobile.org:${config.port}/admin`);
+  console.log('  Admin: https://<IP>.local-ip.medicmobile.org/admin');
   console.log('');
   console.log('  Replace <IP> with your LAN IP using dashes instead of dots.');
   console.log('  Example: if your IP is 192.168.1.100, access:');
-  console.log(`  https://192-168-1-100.local-ip.medicmobile.org:${config.port}/admin`);
+  console.log('  https://192-168-1-100.local-ip.medicmobile.org/admin');
   console.log('');
 });
