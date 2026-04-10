@@ -6,7 +6,8 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM node:20-alpine
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 py3-pip make g++ ffmpeg
+RUN pip3 install --break-system-packages yt-dlp
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev && apk del python3 make g++

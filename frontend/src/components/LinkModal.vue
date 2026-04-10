@@ -23,6 +23,10 @@ const source = ref('')
 const quality = ref('1080p')
 const loading = ref(false)
 const error = ref('')
+const saveLocal = ref(false)
+const downloadProgress = ref(0)
+const downloadTotal = ref(0)
+const downloadStatus = ref('')
 
 // Google Drive
 const driveUrl = ref('')
@@ -83,6 +87,40 @@ function browseFile() {
   fileInputRef.value?.click()
 }
 
+function pollDownload(downloadId) {
+  return new Promise((resolve) => {
+    const es = new EventSource(`/api/files/download-progress/${downloadId}`)
+    es.onmessage = (e) => {
+      const p = JSON.parse(e.data)
+      downloadProgress.value = p.progress || 0
+      downloadTotal.value = p.total || 0
+      downloadStatus.value = p.status
+
+      if (p.status === 'done') {
+        es.close()
+        loading.value = false
+        downloadStatus.value = ''
+        emit('linked', { id: downloadId, saved: true })
+        resolve()
+      }
+      if (p.status === 'error') {
+        es.close()
+        loading.value = false
+        downloadStatus.value = ''
+        error.value = p.error || 'Download failed'
+        resolve()
+      }
+    }
+    es.onerror = () => {
+      es.close()
+      loading.value = false
+      downloadStatus.value = ''
+      error.value = 'Connection lost during download'
+      resolve()
+    }
+  })
+}
+
 function formatSize(bytes) {
   if (!bytes) return ''
   const gb = bytes / (1024 * 1024 * 1024)
@@ -98,18 +136,27 @@ async function submit() {
   try {
     let result
     if (source.value === 'gdrive') {
-      result = await linkGdrive(props.targetId, driveUrl.value, quality.value)
+      result = await linkGdrive(props.targetId, driveUrl.value, quality.value, saveLocal.value)
     } else if (source.value === 'mega') {
-      result = await linkMega(props.targetId, megaUrl.value, quality.value)
+      result = await linkMega(props.targetId, megaUrl.value, quality.value, saveLocal.value)
     } else if (source.value === 'telegram') {
-      result = await linkTelegram(props.targetId, telegramUrl.value, quality.value)
+      result = await linkTelegram(props.targetId, telegramUrl.value, quality.value, saveLocal.value)
     } else if (source.value === 'youtube') {
-      result = await linkYoutube(props.targetId, youtubeUrl.value, quality.value)
+      result = await linkYoutube(props.targetId, youtubeUrl.value, quality.value, saveLocal.value)
     } else if (source.value === 'link') {
       result = await linkLocal(props.targetId, linkPath.value, quality.value)
     } else {
       result = await uploadLocal(props.targetId, selectedFile.value, quality.value)
     }
+
+    if (result.downloading && result.downloadId) {
+      downloadProgress.value = 0
+      downloadTotal.value = 0
+      downloadStatus.value = 'downloading'
+      await pollDownload(result.downloadId)
+      return
+    }
+
     emit('linked', result)
   } catch (err) {
     error.value = err.message
@@ -137,32 +184,32 @@ async function submit() {
         <p class="modal-hint">How do you want to add this file?</p>
         <div class="source-options">
           <button class="source-card" @click="selectSource('upload')">
-            <div class="source-icon">&#11014;</div>
+            <div class="source-icon" style="color: #c084fc">&#11014;</div>
             <div class="source-label">Upload File</div>
             <div class="source-desc">Upload a video file to the server storage</div>
           </button>
           <button class="source-card" @click="selectSource('link')">
-            <div class="source-icon">&#128279;</div>
+            <div class="source-icon" style="color: #22c55e">&#128279;</div>
             <div class="source-label">Link File</div>
             <div class="source-desc">Link a file path on the server</div>
           </button>
           <button class="source-card" @click="selectSource('gdrive')">
-            <div class="source-icon">&#9729;</div>
+            <div class="source-icon" style="color: #4285f4">&#9729;</div>
             <div class="source-label">Google Drive</div>
             <div class="source-desc">Link a shared file from Google Drive</div>
           </button>
           <button class="source-card" @click="selectSource('mega')">
-            <div class="source-icon">&#9889;</div>
+            <div class="source-icon" style="color: #d9272e">&#9889;</div>
             <div class="source-label">MEGA</div>
             <div class="source-desc">Link a shared file from MEGA.nz</div>
           </button>
           <button class="source-card" @click="selectSource('youtube')">
-            <div class="source-icon">&#9654;</div>
+            <div class="source-icon" style="color: #ff0000">&#9654;</div>
             <div class="source-label">YouTube</div>
             <div class="source-desc">Link a YouTube video</div>
           </button>
           <button class="source-card" :class="{ 'needs-setup': !telegramLoggedIn }" @click="selectSource('telegram')">
-            <div class="source-icon">&#9992;</div>
+            <div class="source-icon" style="color: #2aabee">&#9992;</div>
             <div class="source-label">Telegram</div>
             <div class="source-desc">{{ telegramLoggedIn ? 'Link a file from Telegram' : 'Setup required — click to configure' }}</div>
           </button>
@@ -277,6 +324,17 @@ async function submit() {
           </select>
         </div>
 
+        <div v-if="source === 'gdrive' || source === 'mega' || source === 'telegram' || source === 'youtube'" class="save-local-row" @click="saveLocal = !saveLocal">
+          <div class="toggle-switch" :class="{ on: saveLocal }">
+            <div class="toggle-knob"></div>
+          </div>
+          <span class="toggle-text">Save locally</span>
+          <div class="info-wrap">
+            <div class="info-icon">&#9432;</div>
+            <div class="info-tooltip">File will be downloaded and stored on the server. Streaming will be from local storage instead of the external source.</div>
+          </div>
+        </div>
+
         <div class="form-row">
           <span class="form-label">Linking to: <code>{{ targetId }}</code></span>
         </div>
@@ -284,9 +342,17 @@ async function submit() {
 
       <!-- Footer (only on step 2) -->
       <div v-if="step === 'form'" class="modal-footer">
-        <button class="btn-ghost" @click="emit('close')">Cancel</button>
-        <button class="btn-primary" @click="submit" :disabled="loading || !canSubmit">
-          {{ loading ? (source === 'local' ? 'Uploading...' : 'Linking...') : (source === 'local' ? 'Upload File' : 'Link File') }}
+        <button class="btn-ghost" @click="emit('close')" :disabled="downloadStatus === 'downloading'">Cancel</button>
+        <button class="btn-progress" @click="submit" :disabled="loading || !canSubmit">
+          <div v-if="downloadStatus === 'downloading'" class="progress-fill" :style="{ width: (downloadTotal ? (downloadProgress / downloadTotal * 100) : 0) + '%' }"></div>
+          <span class="btn-text">
+            {{ downloadStatus === 'downloading'
+              ? (downloadTotal ? formatSize(downloadProgress) + ' / ' + formatSize(downloadTotal) : 'Downloading...')
+              : loading
+                ? (source === 'upload' ? 'Uploading...' : 'Linking...')
+                : (source === 'upload' ? 'Upload File' : saveLocal ? 'Download & Save' : 'Link File')
+            }}
+          </span>
         </button>
       </div>
     </div>
@@ -460,6 +526,87 @@ async function submit() {
 }
 
 .btn-sm { padding: 6px 14px; font-size: 12px; }
+
+.save-local-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.toggle-switch {
+  width: 36px; height: 20px;
+  background: var(--border);
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.toggle-switch.on { background: var(--accent); }
+.toggle-knob {
+  width: 16px; height: 16px;
+  background: white;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px; left: 2px;
+  transition: left 0.2s;
+}
+.toggle-switch.on .toggle-knob { left: 18px; }
+.toggle-text { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.info-wrap {
+  margin-left: auto;
+  position: relative;
+}
+.info-icon {
+  font-size: 16px;
+  color: var(--text-muted);
+  cursor: help;
+}
+.info-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 240px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  z-index: 10;
+}
+.info-wrap:hover .info-tooltip { display: block; }
+
+.btn-progress {
+  position: relative;
+  overflow: hidden;
+  padding: 10px 24px;
+  background: var(--accent);
+  color: white;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  min-width: 160px;
+  transition: opacity 0.2s;
+}
+.btn-progress:disabled { opacity: 0.7; cursor: not-allowed; }
+.btn-progress .progress-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: rgba(255,255,255,0.25);
+  transition: width 0.5s ease;
+  pointer-events: none;
+}
+.btn-progress .btn-text {
+  position: relative;
+  z-index: 1;
+}
 
 .modal-footer {
   display: flex;

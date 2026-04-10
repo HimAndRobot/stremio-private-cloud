@@ -4,7 +4,7 @@ const playbackPending = {};
 const PLAYBACK_TTL = 3 * 60 * 60 * 1000;
 
 // Get video playback URLs from Google Drive's streaming API
-async function getPlaybackUrl(fileId) {
+export async function getPlaybackUrl(fileId) {
   if (playbackCache[fileId] && Date.now() - playbackCache[fileId].time < PLAYBACK_TTL) {
     return playbackCache[fileId].url;
   }

@@ -7,7 +7,7 @@ import { getSetting, setSetting } from '../api/settings.js';
 let client = null;
 
 // Get or create Telegram client
-async function getClient() {
+export async function getClient() {
   if (client?.connected) return client;
 
   const apiId = parseInt(getSetting('telegram_api_id'), 10);

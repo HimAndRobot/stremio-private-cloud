@@ -93,18 +93,22 @@ export function deleteFile(fileId) {
   return request(`/files/${fileId}`, { method: 'DELETE' });
 }
 
-export function linkGdrive(imdbId, driveUrl, quality) {
+export function linkGdrive(imdbId, driveUrl, quality, saveLocal) {
   return request('/files/gdrive', {
     method: 'POST',
-    body: JSON.stringify({ imdb_id: imdbId, drive_url: driveUrl, quality }),
+    body: JSON.stringify({ imdb_id: imdbId, drive_url: driveUrl, quality, save_local: saveLocal || undefined }),
   });
 }
 
-export function linkMega(imdbId, megaUrl, quality) {
+export function linkMega(imdbId, megaUrl, quality, saveLocal) {
   return request('/files/mega', {
     method: 'POST',
-    body: JSON.stringify({ imdb_id: imdbId, mega_url: megaUrl, quality }),
+    body: JSON.stringify({ imdb_id: imdbId, mega_url: megaUrl, quality, save_local: saveLocal || undefined }),
   });
+}
+
+export function getDownloadProgress(downloadId) {
+  return request(`/files/download-progress/${downloadId}`);
 }
 
 export function resetAllData() {
@@ -144,17 +148,17 @@ export function telegramLogout() {
   return request('/settings/integrations/telegram/logout', { method: 'POST' });
 }
 
-export function linkTelegram(imdbId, telegramUrl, quality) {
+export function linkTelegram(imdbId, telegramUrl, quality, saveLocal) {
   return request('/files/telegram', {
     method: 'POST',
-    body: JSON.stringify({ imdb_id: imdbId, telegram_url: telegramUrl, quality }),
+    body: JSON.stringify({ imdb_id: imdbId, telegram_url: telegramUrl, quality, save_local: saveLocal || undefined }),
   });
 }
 
-export function linkYoutube(imdbId, youtubeUrl, quality) {
+export function linkYoutube(imdbId, youtubeUrl, quality, saveLocal) {
   return request('/files/youtube', {
     method: 'POST',
-    body: JSON.stringify({ imdb_id: imdbId, youtube_url: youtubeUrl, quality }),
+    body: JSON.stringify({ imdb_id: imdbId, youtube_url: youtubeUrl, quality, save_local: saveLocal || undefined }),
   });
 }
 

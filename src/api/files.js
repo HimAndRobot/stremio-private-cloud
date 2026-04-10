@@ -9,6 +9,7 @@ import { parseDriveFileId, probeDriveFile } from '../streaming/gdrive.js';
 import { parseMegaUrl, probeMegaFile } from '../streaming/mega.js';
 import { parseTelegramLink, getMessageFile } from '../streaming/telegram.js';
 import config from '../config.js';
+import { downloadToLocal, getDownloadProgress } from './download.js';
 
 const upload = multer({
   dest: config.uploadDir,
@@ -86,7 +87,7 @@ router.post('/link', (req, res) => {
 
 // Link a Google Drive shared file
 router.post('/gdrive', async (req, res) => {
-  const { imdb_id, drive_url, quality, file_name } = req.body;
+  const { imdb_id, drive_url, quality, file_name, save_local } = req.body;
   if (!imdb_id || !drive_url) {
     return res.status(400).json({ error: 'imdb_id and drive_url are required' });
   }
@@ -112,25 +113,24 @@ router.post('/gdrive', async (req, res) => {
 
   if (!detectedName) detectedName = `gdrive_${driveFileId}.mp4`;
 
+  const sourceMeta = JSON.stringify({ driveFileId });
   const id = fileId();
-  fileDb.createFile({
-    id,
-    imdb_id,
-    file_path: drive_url,
-    file_name: detectedName,
-    file_size: fileSize,
-    mime_type: getMimeType(detectedName),
-    quality: quality || null,
-    source_type: 'gdrive',
-    source_meta: JSON.stringify({ driveFileId }),
-  });
 
+  if (save_local) {
+    const downloadId = id;
+    downloadToLocal(downloadId, 'gdrive', sourceMeta, detectedName, fileSize, quality).then((savedPath) => {
+      fileDb.createFile({ id, imdb_id, file_path: savedPath, file_name: detectedName, file_size: statSync(savedPath).size, mime_type: getMimeType(detectedName), quality: quality || null, source_type: 'upload' });
+    }).catch(() => {});
+    return res.status(202).json({ downloading: true, downloadId });
+  }
+
+  fileDb.createFile({ id, imdb_id, file_path: drive_url, file_name: detectedName, file_size: fileSize, mime_type: getMimeType(detectedName), quality: quality || null, source_type: 'gdrive', source_meta: sourceMeta });
   res.status(201).json(fileDb.getFile(id));
 });
 
 // Link a MEGA shared file
 router.post('/mega', async (req, res) => {
-  const { imdb_id, mega_url, quality } = req.body;
+  const { imdb_id, mega_url, quality, save_local } = req.body;
   if (!imdb_id || !mega_url) {
     return res.status(400).json({ error: 'imdb_id and mega_url are required' });
   }
@@ -155,25 +155,24 @@ router.post('/mega', async (req, res) => {
 
   if (!detectedName) detectedName = `mega_file.mp4`;
 
+  const sourceMeta = JSON.stringify({ megaUrl: validUrl });
   const id = fileId();
-  fileDb.createFile({
-    id,
-    imdb_id,
-    file_path: mega_url,
-    file_name: detectedName,
-    file_size: fileSize,
-    mime_type: getMimeType(detectedName),
-    quality: quality || null,
-    source_type: 'mega',
-    source_meta: JSON.stringify({ megaUrl: validUrl }),
-  });
 
+  if (save_local) {
+    const downloadId = id;
+    downloadToLocal(downloadId, 'mega', sourceMeta, detectedName, fileSize, quality).then((savedPath) => {
+      fileDb.createFile({ id, imdb_id, file_path: savedPath, file_name: detectedName, file_size: statSync(savedPath).size, mime_type: getMimeType(detectedName), quality: quality || null, source_type: 'upload' });
+    }).catch(() => {});
+    return res.status(202).json({ downloading: true, downloadId });
+  }
+
+  fileDb.createFile({ id, imdb_id, file_path: mega_url, file_name: detectedName, file_size: fileSize, mime_type: getMimeType(detectedName), quality: quality || null, source_type: 'mega', source_meta: sourceMeta });
   res.status(201).json(fileDb.getFile(id));
 });
 
 // Link a Telegram file
 router.post('/telegram', async (req, res) => {
-  const { imdb_id, telegram_url, quality } = req.body;
+  const { imdb_id, telegram_url, quality, save_local } = req.body;
   if (!imdb_id || !telegram_url) {
     return res.status(400).json({ error: 'imdb_id and telegram_url are required' });
   }
@@ -195,25 +194,24 @@ router.post('/telegram', async (req, res) => {
 
   if (!fileName) fileName = 'telegram_file.mp4';
 
+  const sourceMeta = JSON.stringify({ telegramUrl: telegram_url });
   const id = fileId();
-  fileDb.createFile({
-    id,
-    imdb_id,
-    file_path: telegram_url,
-    file_name: fileName,
-    file_size: fileSize,
-    mime_type: getMimeType(fileName),
-    quality: quality || null,
-    source_type: 'telegram',
-    source_meta: JSON.stringify({ telegramUrl: telegram_url }),
-  });
 
+  if (save_local) {
+    const downloadId = id;
+    downloadToLocal(downloadId, 'telegram', sourceMeta, fileName, fileSize, quality).then((savedPath) => {
+      fileDb.createFile({ id, imdb_id, file_path: savedPath, file_name: fileName, file_size: statSync(savedPath).size, mime_type: getMimeType(fileName), quality: quality || null, source_type: 'upload' });
+    }).catch(() => {});
+    return res.status(202).json({ downloading: true, downloadId });
+  }
+
+  fileDb.createFile({ id, imdb_id, file_path: telegram_url, file_name: fileName, file_size: fileSize, mime_type: getMimeType(fileName), quality: quality || null, source_type: 'telegram', source_meta: sourceMeta });
   res.status(201).json(fileDb.getFile(id));
 });
 
 // Link a YouTube video
 router.post('/youtube', (req, res) => {
-  const { imdb_id, youtube_url, quality } = req.body;
+  const { imdb_id, youtube_url, quality, save_local } = req.body;
   if (!imdb_id || !youtube_url) {
     return res.status(400).json({ error: 'imdb_id and youtube_url are required' });
   }
@@ -223,17 +221,27 @@ router.post('/youtube', (req, res) => {
     return res.status(400).json({ error: 'Could not extract YouTube video ID from URL' });
   }
 
+  const sourceMeta = JSON.stringify({ youtubeId });
   const id = fileId();
+  const fileName = `YouTube - ${youtubeId}.mp4`;
+
+  if (save_local) {
+    downloadToLocal(id, 'youtube', sourceMeta, fileName, 0, quality).then((savedPath) => {
+      fileDb.createFile({ id, imdb_id, file_path: savedPath, file_name: fileName, file_size: statSync(savedPath).size, mime_type: 'video/mp4', quality: quality || null, source_type: 'upload' });
+    }).catch(() => {});
+    return res.status(202).json({ downloading: true, downloadId: id });
+  }
+
   fileDb.createFile({
     id,
     imdb_id,
     file_path: youtube_url,
-    file_name: `YouTube - ${youtubeId}`,
+    file_name: fileName,
     file_size: null,
     mime_type: 'video/mp4',
     quality: quality || null,
     source_type: 'youtube',
-    source_meta: JSON.stringify({ youtubeId }),
+    source_meta: sourceMeta,
   });
 
   res.status(201).json(fileDb.getFile(id));
@@ -252,6 +260,27 @@ function parseYoutubeId(url) {
   if (/^[a-zA-Z0-9_-]{11}$/.test(url)) return url;
   return null;
 }
+
+// Stream download progress via SSE
+router.get('/download-progress/:downloadId', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+
+  const interval = setInterval(() => {
+    const p = getDownloadProgress(req.params.downloadId);
+    if (!p) return;
+    res.write(`data: ${JSON.stringify(p)}\n\n`);
+    if (p.status === 'done' || p.status === 'error') {
+      clearInterval(interval);
+      res.end();
+    }
+  }, 500);
+
+  req.on('close', () => clearInterval(interval));
+});
 
 // Get files for an IMDB ID
 router.get('/by-imdb/:imdbId', (req, res) => {

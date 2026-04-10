@@ -12,11 +12,14 @@ const emit = defineEmits(['close', 'imported'])
 const step = ref('source')
 const source = ref('')
 const linksText = ref('')
+const saveLocal = ref(false)
 const startEpisode = ref(1)
 const quality = ref('1080p')
 const importing = ref(false)
 const importProgress = ref(0)
 const error = ref('')
+const episodeStatus = ref({})
+const currentDownload = ref({ progress: 0, total: 0 })
 
 const parsedLinks = computed(() =>
   linksText.value.split('\n').map(l => l.trim()).filter(l => l.length > 0)
@@ -49,23 +52,55 @@ function goToPreview() {
   step.value = 'preview'
 }
 
+function formatSize(bytes) {
+  if (!bytes) return '0 MB'
+  const gb = bytes / (1024 * 1024 * 1024)
+  if (gb >= 1) return `${gb.toFixed(1)} GB`
+  const mb = bytes / (1024 * 1024)
+  return `${mb.toFixed(0)} MB`
+}
+
+function waitForDownload(downloadId, episode) {
+  return new Promise((resolve, reject) => {
+    const es = new EventSource(`/api/files/download-progress/${downloadId}`)
+    es.onmessage = (e) => {
+      const p = JSON.parse(e.data)
+      currentDownload.value = { progress: p.progress || 0, total: p.total || 0 }
+      if (p.status === 'done') { es.close(); resolve() }
+      if (p.status === 'error') { es.close(); reject(new Error(p.error || 'Download failed')) }
+    }
+    es.onerror = () => { es.close(); reject(new Error('Connection lost')) }
+  })
+}
+
 async function doImport() {
   importing.value = true
   importProgress.value = 0
   error.value = ''
 
-  const linkFn = source.value === 'gdrive' ? linkGdrive
-    : source.value === 'mega' ? linkMega
-    : source.value === 'youtube' ? linkYoutube
-    : linkTelegram
+  const sl = saveLocal.value
+  const linkFn = source.value === 'gdrive' ? (id, url, q) => linkGdrive(id, url, q, sl)
+    : source.value === 'mega' ? (id, url, q) => linkMega(id, url, q, sl)
+    : source.value === 'youtube' ? (id, url, q) => linkYoutube(id, url, q, sl)
+    : (id, url, q) => linkTelegram(id, url, q, sl)
 
   const results = []
   for (let i = 0; i < assignments.value.length; i++) {
     const a = assignments.value[i]
+    episodeStatus.value[a.episode] = 'downloading'
+    currentDownload.value = { progress: 0, total: 0 }
+
     try {
       const result = await linkFn(a.videoId, a.link, quality.value)
+
+      if (result.downloading && result.downloadId) {
+        await waitForDownload(result.downloadId, a.episode)
+      }
+
+      episodeStatus.value[a.episode] = 'done'
       results.push(result)
     } catch (err) {
+      episodeStatus.value[a.episode] = 'error'
       error.value = `Failed on episode ${a.episode}: ${err.message}`
       break
     }
@@ -96,19 +131,19 @@ async function doImport() {
         <p class="hint">Select the source type for all links:</p>
         <div class="source-options">
           <button class="source-card" @click="selectSource('gdrive')">
-            <span class="source-icon">&#9729;</span>
+            <span class="source-icon" style="color: #4285f4">&#9729;</span>
             <span class="source-label">Google Drive</span>
           </button>
           <button class="source-card" @click="selectSource('mega')">
-            <span class="source-icon">&#9889;</span>
+            <span class="source-icon" style="color: #d9272e">&#9889;</span>
             <span class="source-label">MEGA</span>
           </button>
           <button class="source-card" @click="selectSource('youtube')">
-            <span class="source-icon">&#9654;</span>
+            <span class="source-icon" style="color: #ff0000">&#9654;</span>
             <span class="source-label">YouTube</span>
           </button>
           <button class="source-card" @click="selectSource('telegram')">
-            <span class="source-icon">&#9992;</span>
+            <span class="source-icon" style="color: #2aabee">&#9992;</span>
             <span class="source-label">Telegram</span>
           </button>
         </div>
@@ -147,6 +182,17 @@ https://drive.google.com/file/d/.../view"
           </div>
         </div>
 
+        <div class="save-local-row" @click="saveLocal = !saveLocal">
+          <div class="toggle-switch" :class="{ on: saveLocal }">
+            <div class="toggle-knob"></div>
+          </div>
+          <span class="toggle-text">Save locally</span>
+          <div class="info-wrap">
+            <div class="info-icon">&#9432;</div>
+            <div class="info-tooltip">Download files to server storage instead of streaming from external source.</div>
+          </div>
+        </div>
+
         <div class="links-count">{{ parsedLinks.length }} link{{ parsedLinks.length !== 1 ? 's' : '' }} detected</div>
       </div>
 
@@ -160,12 +206,21 @@ https://drive.google.com/file/d/.../view"
         </div>
 
         <div class="assignment-list">
-          <div v-for="(a, i) in assignments" :key="i" class="assignment-row">
+          <div v-for="(a, i) in assignments" :key="i" class="assignment-row" :class="{ 'row-done': episodeStatus[a.episode] === 'done', 'row-active': episodeStatus[a.episode] === 'downloading', 'row-error': episodeStatus[a.episode] === 'error' }">
             <div class="assignment-ep">
               <span class="ep-badge">S{{ String(season).padStart(2, '0') }}E{{ String(a.episode).padStart(2, '0') }}</span>
               <span class="ep-name">{{ a.title }}</span>
             </div>
-            <div class="assignment-link">{{ a.link.length > 60 ? a.link.slice(0, 60) + '...' : a.link }}</div>
+            <div v-if="episodeStatus[a.episode] === 'downloading' && saveLocal" class="assignment-progress">
+              <div class="mini-progress-bar">
+                <div class="mini-progress-fill" :style="{ width: (currentDownload.total ? (currentDownload.progress / currentDownload.total * 100) : 0) + '%' }"></div>
+              </div>
+              <span class="mini-progress-text">{{ formatSize(currentDownload.progress) }}{{ currentDownload.total ? ' / ' + formatSize(currentDownload.total) : '' }}</span>
+            </div>
+            <div v-else-if="episodeStatus[a.episode] === 'downloading'" class="assignment-status downloading">Linking...</div>
+            <div v-else-if="episodeStatus[a.episode] === 'done'" class="assignment-status done">&#10003;</div>
+            <div v-else-if="episodeStatus[a.episode] === 'error'" class="assignment-status err">&#10005;</div>
+            <div v-else class="assignment-link">{{ a.link.length > 50 ? a.link.slice(0, 50) + '...' : a.link }}</div>
           </div>
         </div>
       </div>
@@ -257,6 +312,31 @@ https://drive.google.com/file/d/.../view"
 .config-input:focus { border-color: var(--accent); }
 .config-input:disabled { opacity: 0.5; }
 
+.save-local-row {
+  display: flex; align-items: center; gap: 10px;
+  cursor: pointer; user-select: none;
+}
+.toggle-switch {
+  width: 36px; height: 20px; background: var(--border);
+  border-radius: 10px; position: relative; transition: background 0.2s; flex-shrink: 0;
+}
+.toggle-switch.on { background: var(--accent); }
+.toggle-knob {
+  width: 16px; height: 16px; background: white; border-radius: 50%;
+  position: absolute; top: 2px; left: 2px; transition: left 0.2s;
+}
+.toggle-switch.on .toggle-knob { left: 18px; }
+.toggle-text { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.info-wrap { margin-left: auto; position: relative; }
+.info-icon { font-size: 16px; color: var(--text-muted); cursor: help; }
+.info-tooltip {
+  display: none; position: absolute; bottom: calc(100% + 8px); right: 0;
+  width: 220px; padding: 10px 12px; background: var(--bg-secondary);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow); font-size: 12px; color: var(--text-secondary);
+  line-height: 1.5; z-index: 10;
+}
+.info-wrap:hover .info-tooltip { display: block; }
 .links-count { font-size: 12px; color: var(--text-muted); text-align: right; }
 
 .error-banner {
@@ -280,6 +360,9 @@ https://drive.google.com/file/d/.../view"
 }
 
 .assignment-list { display: flex; flex-direction: column; gap: 6px; }
+.assignment-row.row-done { border-color: var(--success); opacity: 0.7; }
+.assignment-row.row-active { border-color: var(--accent); }
+.assignment-row.row-error { border-color: var(--danger); }
 .assignment-row {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 14px; background: var(--bg-card);
@@ -295,6 +378,26 @@ https://drive.google.com/file/d/.../view"
   font-size: 11px; color: var(--text-muted); font-family: monospace;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
 }
+.assignment-progress {
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
+}
+.mini-progress-bar {
+  flex: 1; height: 4px; background: var(--bg-secondary);
+  border-radius: 2px; overflow: hidden;
+}
+.mini-progress-fill {
+  height: 100%; background: var(--accent);
+  border-radius: 2px; transition: width 0.3s;
+}
+.mini-progress-text {
+  font-size: 10px; color: var(--accent); white-space: nowrap; flex-shrink: 0;
+}
+.assignment-status {
+  font-size: 12px; font-weight: 600; flex-shrink: 0;
+}
+.assignment-status.downloading { color: var(--accent); }
+.assignment-status.done { color: var(--success); }
+.assignment-status.err { color: var(--danger); }
 
 .modal-footer {
   display: flex; justify-content: flex-end; gap: 8px;

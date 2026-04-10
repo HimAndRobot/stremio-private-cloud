@@ -82,14 +82,26 @@ function openLink(videoId) {
   showModal.value = true
 }
 
-function onBulkImported(results) {
-  files.value.push(...results)
+async function onBulkImported() {
   showBulkImport.value = false
+  await new Promise(r => setTimeout(r, 1500))
+  try {
+    const data = await getContent(props.imdbId)
+    files.value = data.files || []
+  } catch {}
 }
 
-function onLinked(result) {
-  files.value.push(result)
+async function onLinked(result) {
   showModal.value = false
+  if (result.saved) {
+    await new Promise(r => setTimeout(r, 1500))
+    try {
+      const data = await getContent(props.imdbId)
+      files.value = data.files || []
+    } catch {}
+  } else {
+    files.value.push(result)
+  }
 }
 
 function formatSize(bytes) {
