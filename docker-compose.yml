@@ -2,9 +2,11 @@ services:
   stremio-private-cloud:
     build: .
     ports:
-      - "11780:11780"
+      - "443:11780"
     volumes:
       - ./data:/app/data
+    environment:
+      - HOST_IP=${HOST_IP:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

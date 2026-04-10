@@ -84,7 +84,6 @@ const server = createServer({ cert, key }, app);
 // API endpoint so frontend can build the correct addon URL
 app.get('/api/server-info', (req, res) => {
   let host = req.headers.host || '';
-  if (!host.includes(':')) host = `${host}:${config.port}`;
   res.json({
     addonUrl: `https://${host}/manifest.json`,
     adminUrl: `https://${host}/admin`,
@@ -92,8 +91,17 @@ app.get('/api/server-info', (req, res) => {
 });
 
 server.listen(config.port, config.host, () => {
+  const validIp = lanIp && /^(192\.168|10\.)/.test(lanIp);
   console.log('');
   console.log('  Stremio Private Cloud is running!');
-  console.log(`  Admin: ${baseUrl}/admin`);
+  if (validIp) {
+    console.log(`  Admin: ${baseUrl}/admin`);
+  } else {
+    console.log(`  Admin: https://<IP>.local-ip.medicmobile.org:${config.port}/admin`);
+    console.log('');
+    console.log('  Replace <IP> with your LAN IP using dashes instead of dots.');
+    console.log(`  Example: if your IP is 192.168.1.100, access:`);
+    console.log(`  https://192-168-1-100.local-ip.medicmobile.org:${config.port}/admin`);
+  }
   console.log('');
 });

@@ -34,5 +34,6 @@ export function ipToDashed(ip) {
 // Build the full HTTPS addon URL
 export function getAddonUrl(ip, port) {
   const dashed = ipToDashed(ip);
-  return `https://${dashed}.local-ip.medicmobile.org:${port}`;
+  const portSuffix = port === 443 ? '' : `:${port}`;
+  return `https://${dashed}.local-ip.medicmobile.org${portSuffix}`;
 }
