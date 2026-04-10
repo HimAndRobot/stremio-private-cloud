@@ -38,18 +38,21 @@ cd stremio-private-cloud
 docker compose up -d --build
 ```
 
-The console will show the Admin URL. If running inside Docker, it may not detect your LAN IP automatically. In that case, replace `<IP>` with your LAN IP using dashes instead of dots:
+The console will show the Admin URL. If running inside Docker, it may not detect your LAN IP automatically. Follow these steps to build your access URL:
 
-```
-https://192-168-1-100.local-ip.medicmobile.org/admin
-```
+1. Find your LAN IP:
+   - **Mac**: open Terminal and run `ipconfig getifaddr en0`
+   - **Linux**: open Terminal and run `hostname -I`
+   - **Windows**: open CMD and run `ipconfig`, look for "IPv4 Address"
 
-To find your LAN IP:
-- **Mac**: `ipconfig getifaddr en0`
-- **Linux**: `hostname -I`
-- **Windows**: `ipconfig` (look for IPv4 Address)
+2. Replace the dots with dashes. For example, `192.168.1.100` becomes `192-168-1-100`
 
-Once inside the Admin UI, the correct Addon URL with copy and install buttons is displayed at the top.
+3. Open your browser and go to:
+   ```
+   https://192-168-1-100.local-ip.medicmobile.org/admin
+   ```
+
+That's it. Once inside the Admin UI, the correct Addon URL with copy and install buttons is displayed at the top. Use that URL to install the addon in Stremio on any device in your network.
 
 ## How to use
 
